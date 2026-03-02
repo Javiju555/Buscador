@@ -42,8 +42,8 @@ cargo tauri build
 
 Artefactos release en Windows:
 
-- `src-tauri/target/release/bundle/nsis/Buscador_0.1.0_x64-setup.exe` (instalador recomendado)
-- `src-tauri/target/release/bundle/msi/Buscador_0.1.0_x64_en-US.msi`
+- `src-tauri/target/release/bundle/nsis/Buscador_0.1.1_x64-setup.exe` (instalador recomendado)
+- `src-tauri/target/release/bundle/msi/Buscador_0.1.1_x64_en-US.msi`
 
 ## Build portable (ZIP)
 
@@ -56,12 +56,12 @@ cargo tauri build
 2. Empaqueta portable:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\make-portable.ps1 -Version 0.1.0
+powershell -ExecutionPolicy Bypass -File .\scripts\make-portable.ps1 -Version 0.1.1
 ```
 
 Salida:
 
-- `dist/portable/Buscador_0.1.0_x64_portable.zip`
+- `dist/portable/Buscador_0.1.1_x64_portable.zip`
 
 La edición portable incluye `Buscador.exe` y no modifica el inicio automático por sí sola.
 
