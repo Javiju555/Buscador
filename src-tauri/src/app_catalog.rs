@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::RwLock;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use walkdir::WalkDir;
 
 use crate::models::{SearchResult, SearchResultKind};
@@ -234,7 +237,11 @@ fn collect_start_apps_entries(found: &mut BTreeMap<String, AppEntry>) {
 
     #[cfg(target_os = "windows")]
     {
-        let output = match Command::new("powershell")
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let mut command = Command::new("powershell.exe");
+        command
+            .creation_flags(CREATE_NO_WINDOW)
             .args([
                 "-NoProfile",
                 "-NonInteractive",
@@ -242,8 +249,9 @@ fn collect_start_apps_entries(found: &mut BTreeMap<String, AppEntry>) {
                 "Bypass",
                 "-Command",
                 "Get-StartApps | Sort-Object Name | ConvertTo-Json -Compress",
-            ])
-            .output()
+            ]);
+
+        let output = match command.output()
         {
             Ok(value) if value.status.success() => value,
             _ => return,
