@@ -64,6 +64,12 @@ impl SearchService {
             };
         }
 
+        let calculation = if mode == SearchMode::Mixed && looks_like_math(&query) {
+            build_calculation(&query, false).into_iter().next()
+        } else {
+            None
+        };
+
         let mut bag: Vec<SearchResult> = vec![];
         if mode == SearchMode::Mixed {
             bag.extend(self.app_catalog.search(&query, limit));
@@ -74,12 +80,16 @@ impl SearchService {
         if mode == SearchMode::File || (mode == SearchMode::Mixed && include_files_in_mixed) {
             bag.extend(self.file_catalog.search(&query, limit));
         }
-        if mode == SearchMode::Mixed && looks_like_math(&query) {
-            bag.extend(build_calculation(&query, false));
-        }
 
         bag.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.title.cmp(&b.title)));
-        bag.truncate(limit);
+
+        let reserve_for_calc = usize::from(calculation.is_some());
+        let non_calc_limit = limit.saturating_sub(reserve_for_calc);
+        bag.truncate(non_calc_limit);
+
+        if let Some(calc) = calculation {
+            bag.push(calc);
+        }
 
         SearchResponse {
             results: bag,

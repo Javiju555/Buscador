@@ -198,7 +198,11 @@ fn build_index(
 fn normalize_settings(settings: LauncherSettings) -> LauncherSettings {
     let roots = normalize_roots(settings.roots);
     let max_files = settings.max_files.clamp(HARD_MIN_ENTRIES, HARD_MAX_ENTRIES);
-    LauncherSettings { roots, max_files }
+    LauncherSettings {
+        start_with_windows: settings.start_with_windows,
+        roots,
+        max_files,
+    }
 }
 
 fn normalize_roots(roots: Vec<String>) -> Vec<String> {
@@ -248,6 +252,7 @@ fn default_roots() -> Vec<PathBuf> {
 
 fn default_settings() -> LauncherSettings {
     LauncherSettings {
+        start_with_windows: false,
         roots: vec![],
         max_files: DEFAULT_MAX_ENTRIES,
     }

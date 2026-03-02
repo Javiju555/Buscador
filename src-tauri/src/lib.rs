@@ -74,6 +74,8 @@ fn save_settings(
     state: tauri::State<'_, AppState>,
 ) -> Result<LauncherSettings, String> {
     let normalized = state.search_service.update_launcher_settings(settings);
+    apply_windows_autostart_setting(normalized.start_with_windows)
+        .map_err(|error| error.to_string())?;
     settings_store::save_settings(&normalized)?;
     Ok(normalized)
 }
@@ -614,7 +616,11 @@ fn detect_windows_theme() -> Option<&'static str> {
 }
 
 #[cfg(target_os = "windows")]
-fn maybe_seed_windows_autostart() {
+fn maybe_seed_windows_autostart(settings: &LauncherSettings) {
+    if !settings.start_with_windows {
+        return;
+    }
+
     let current_exe = match std::env::current_exe() {
         Ok(path) => path,
         Err(error) => {
@@ -666,6 +672,39 @@ fn set_windows_run_autostart(exe_path: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
+fn remove_windows_run_autostart() -> Result<()> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (run_key, _) = hkcu
+        .create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
+        .context("No se pudo abrir/crear clave Run")?;
+
+    match run_key.delete_value("Buscador") {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("No se pudo eliminar valor Run de Buscador"),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn apply_windows_autostart_setting(enabled: bool) -> Result<()> {
+    if enabled {
+        let exe = std::env::current_exe().context("No se pudo resolver current_exe")?;
+        let exe_text = exe.to_string_lossy().to_string();
+        return set_windows_run_autostart(&exe_text);
+    }
+
+    remove_windows_run_autostart()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_windows_autostart_setting(_enabled: bool) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
 fn autostart_seed_marker_path() -> PathBuf {
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
         return PathBuf::from(local_app_data)
@@ -677,7 +716,7 @@ fn autostart_seed_marker_path() -> PathBuf {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn maybe_seed_windows_autostart() {}
+fn maybe_seed_windows_autostart(_settings: &LauncherSettings) {}
 
 #[cfg(not(target_os = "windows"))]
 fn detect_windows_theme() -> Option<&'static str> {
@@ -770,6 +809,7 @@ fn trim_webview_memory() {}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let startup_settings = settings_store::load_settings();
+    let startup_settings_for_setup = startup_settings.clone();
 
     tauri::Builder::default()
         .manage(AppState {
@@ -795,9 +835,9 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
-        .setup(|app| {
+        .setup(move |app| {
             let app_handle = app.handle().clone();
-            maybe_seed_windows_autostart();
+            maybe_seed_windows_autostart(&startup_settings_for_setup);
             ensure_keepalive_window(&app_handle)?;
 
             if let Some(window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {

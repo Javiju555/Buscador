@@ -39,6 +39,8 @@ pub struct ExecutePayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LauncherSettings {
+    #[serde(default)]
+    pub start_with_windows: bool,
     pub roots: Vec<String>,
     pub max_files: usize,
 }

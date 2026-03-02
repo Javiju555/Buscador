@@ -18,6 +18,7 @@ interface SearchResponse {
 }
 
 interface LauncherSettings {
+  startWithWindows: boolean;
   roots: string[];
   maxFiles: number;
 }
@@ -65,6 +66,10 @@ appRoot.innerHTML = `
       />
       <label class="settings-label" for="settings-max-files">Maximo de archivos</label>
       <input id="settings-max-files" class="settings-input" type="number" min="3000" max="100000" step="500" />
+      <label class="settings-checkbox-row" for="settings-start-with-windows">
+        <input id="settings-start-with-windows" type="checkbox" />
+        <span>Iniciar con Windows</span>
+      </label>
       <div class="settings-actions">
         <button id="settings-save" class="settings-button primary" type="button">Guardar y reindexar</button>
         <button id="settings-reindex" class="settings-button" type="button">Reindexar</button>
@@ -93,6 +98,9 @@ const settingsToggle = document.querySelector<HTMLButtonElement>("#settings-togg
 const settingsPanel = document.querySelector<HTMLElement>("#settings-panel")!;
 const settingsRootsInput = document.querySelector<HTMLInputElement>("#settings-roots")!;
 const settingsMaxFilesInput = document.querySelector<HTMLInputElement>("#settings-max-files")!;
+const settingsStartWithWindowsInput = document.querySelector<HTMLInputElement>(
+  "#settings-start-with-windows",
+)!;
 const settingsSaveButton = document.querySelector<HTMLButtonElement>("#settings-save")!;
 const settingsReindexButton = document.querySelector<HTMLButtonElement>("#settings-reindex")!;
 const settingsStatus = document.querySelector<HTMLElement>("#settings-status")!;
@@ -427,6 +435,7 @@ async function loadSettingsIntoUI(): Promise<void> {
     const settings = await invoke<LauncherSettings>("get_settings");
     settingsRootsInput.value = settings.roots.join(";");
     settingsMaxFilesInput.value = String(settings.maxFiles);
+    settingsStartWithWindowsInput.checked = settings.startWithWindows;
     settingsLoaded = true;
   } catch (error) {
     settingsStatus.textContent = `No se pudieron cargar ajustes: ${String(error)}`;
@@ -440,16 +449,18 @@ async function saveSettingsFromUI(): Promise<void> {
     .filter((value) => value.length > 0);
   const parsedMax = Number.parseInt(settingsMaxFilesInput.value, 10);
   const maxFiles = Number.isFinite(parsedMax) ? parsedMax : 25_000;
+  const startWithWindows = settingsStartWithWindowsInput.checked;
 
   try {
     settingsSaveButton.disabled = true;
     settingsStatus.textContent = "Guardando y reindexando...";
     const saved = await invoke<LauncherSettings>("save_settings", {
-      settings: { roots, maxFiles },
+      settings: { startWithWindows, roots, maxFiles },
     });
 
     settingsRootsInput.value = saved.roots.join(";");
     settingsMaxFilesInput.value = String(saved.maxFiles);
+    settingsStartWithWindowsInput.checked = saved.startWithWindows;
     settingsStatus.textContent = "Ajustes guardados y reindexado lanzado.";
     settingsLoaded = true;
   } catch (error) {

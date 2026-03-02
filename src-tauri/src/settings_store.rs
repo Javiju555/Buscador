@@ -2,6 +2,11 @@ use std::path::PathBuf;
 
 use crate::models::LauncherSettings;
 
+#[cfg(target_os = "windows")]
+use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+#[cfg(target_os = "windows")]
+use winreg::RegKey;
+
 pub fn load_settings() -> LauncherSettings {
     let path = settings_path();
     let mut loaded = match std::fs::read_to_string(path) {
@@ -27,6 +32,11 @@ pub fn load_settings() -> LauncherSettings {
         if let Ok(parsed) = max_files.parse::<usize>() {
             loaded.max_files = parsed;
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        loaded.start_with_windows = is_windows_autostart_enabled();
     }
 
     loaded
@@ -72,7 +82,25 @@ fn settings_path() -> PathBuf {
 
 fn default_settings() -> LauncherSettings {
     LauncherSettings {
+        start_with_windows: false,
         roots: vec![],
         max_files: 25_000,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_windows_autostart_enabled() -> bool {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let run_key = match hkcu.open_subkey_with_flags(
+        r"Software\Microsoft\Windows\CurrentVersion\Run",
+        KEY_READ,
+    ) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    match run_key.get_value::<String, _>("Buscador") {
+        Ok(value) => !value.trim().is_empty(),
+        Err(_) => false,
     }
 }
