@@ -9,6 +9,7 @@ mod settings_store;
 mod text_matcher;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -612,6 +613,72 @@ fn detect_windows_theme() -> Option<&'static str> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn maybe_seed_windows_autostart() {
+    let current_exe = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(error) => {
+            log::warn!("No se pudo resolver current_exe para autostart: {error}");
+            return;
+        }
+    };
+
+    let exe_text = current_exe.to_string_lossy().to_string();
+    let normalized = exe_text.to_lowercase().replace('/', "\\");
+    if !normalized.contains("\\appdata\\local\\programs\\buscador\\") {
+        return;
+    }
+
+    let seed_marker = autostart_seed_marker_path();
+    if seed_marker.exists() {
+        return;
+    }
+
+    match set_windows_run_autostart(&exe_text) {
+        Ok(()) => {
+            if let Some(parent) = seed_marker.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(seed_marker, b"seeded");
+            log::info!("Autostart inicial configurado");
+        }
+        Err(error) => {
+            log::warn!("No se pudo configurar autostart inicial: {error}");
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn set_windows_run_autostart(exe_path: &str) -> Result<()> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (run_key, _) = hkcu
+        .create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
+        .context("No se pudo abrir/crear clave Run")?;
+
+    let command = format!("\"{exe_path}\"");
+    run_key
+        .set_value("Buscador", &command)
+        .context("No se pudo escribir valor Run para Buscador")?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn autostart_seed_marker_path() -> PathBuf {
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(local_app_data)
+            .join("BuscadorLauncher")
+            .join("autostart.seed");
+    }
+
+    PathBuf::from("autostart.seed")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn maybe_seed_windows_autostart() {}
+
 #[cfg(not(target_os = "windows"))]
 fn detect_windows_theme() -> Option<&'static str> {
     None
@@ -730,6 +797,7 @@ pub fn run() {
         )
         .setup(|app| {
             let app_handle = app.handle().clone();
+            maybe_seed_windows_autostart();
             ensure_keepalive_window(&app_handle)?;
 
             if let Some(window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {

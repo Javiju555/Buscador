@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "cd frontend && bun run dev --host --port 1420",
-    "beforeBuildCommand": "cd frontend && bun run build"
+    "beforeDevCommand": "cd ../frontend && bun run dev --host --port 1420",
+    "beforeBuildCommand": "cd ../frontend && bun run build"
   },
   "app": {
     "windows": [
