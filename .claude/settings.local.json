@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun --version)",
+      "Bash(bun install)",
+      "Bash(echo \"CSS del #app: padding: 10px 14px => top+bottom = 20px\")",
+      "Bash(echo \"=> collapsed target = max\\(88, 120\\) = 120px\")",
+      "Bash(echo \"El conf height = 190 => hay un gap de 70px extra en el arranque\")",
+      "Bash(echo \"  El clamp de Rust llega a 640 => no hay conflicto critico\")",
+      "Bash(echo \"2. Usuario presiona Ctrl+Space => toggle_main_window\\(\\)\")",
+      "Bash(echo \"4. window.show\\(\\) => ventana aparece con 190px de altura \\(FLASH\\)\")",
+      "Bash(echo \"5. Frontend recibe launcher-focus event => resetState\\(\\) => scheduleResize\\(\\)\")",
+      "Bash(echo \"6. scheduleResize => computeTargetHeight\\(\\) => COLLAPSED_HEIGHT = 120\")",
+      "Bash(echo \"7. Llama resize_launcher\\(120\\) => set_size\\(120\\) + window.center\\(\\) [BUG]\")",
+      "Bash(echo \"  => La ventana SALTA de y=170 a y=460 en cada resize\")",
+      "Bash(echo \"       usa outer_size que ya sera ~120px => posicion Y correcta\")",
+      "Bash(echo \"  NEUTRAL: minHeight en conf es 120 => consistent\")",
+      "Bash(echo \"  Flujo: resize\\(120\\) => center_on_monitor\\(\\) => show\\(\\)\")",
+      "Bash(echo \"  Pero sigue oculto => cuando aparezca ya tiene 120px\")",
+      "Bash(echo \"  => area transparente bajo el pill captura eventos\")",
+      "Bash(echo \"  => Hay ~38px de area transparente capturando eventos\")",
+      "Bash(echo \"=> No aplica aqui sin perder funcionalidad del input\")",
+      "Bash(echo \"    => pill height ~= 62 + 2.4 = ~64px\")",
+      "Bash(echo \"=> Cambiar 120.0 a 80.0 \\(dar margen al frontend\\)\")",
+      "Bash(echo \"  center_on_active_monitor\\(&window\\) => outer_size = 190px \\(tamanio conf\\)\")",
+      "Bash(echo \"  window.show\\(\\) => APARECE con 190px\")",
+      "Bash(echo \"  center_on_active_monitor => outer_size = 120px\")",
+      "Bash(echo \"  y = work.top + \\(work_height - 120\\) / 5  => posicion correcta\")",
+      "Bash(echo \"  window.show\\(\\) => aparece con 120px => NO HAY FLASH de altura extra\")",
+      "Bash(echo \"=== Verificar orden center -> show en toggle_main_window ===\")",
+      "Bash(echo \"La ventana estaba oculta => set_position funciona antes de show? SI en Windows\")",
+      "Bash(echo \"  184 + 400 = 584 < 1040 => NO se sale de la pantalla\")",
+      "Bash(echo \"  184 + 620 = 804 < 1040 => OK, no se sale de pantalla\")",
+      "Bash(echo \"  Expandido a 620: 128 + 620 = 748 < 760 => barely OK\")",
+      "Bash(echo \"  => ELIMINAR linea 191 completamente\")",
+      "Bash(echo \"  => Permite al frontend colapsar a la altura real del DOM \\(~90px\\)\")",
+      "Bash(echo \"  => Elimina flash de ventana grande al primer show\\(\\)\")",
+      "Bash(echo \"  => Consistente con el nuevo clamp de Rust\")"
+    ]
+  }
+}
