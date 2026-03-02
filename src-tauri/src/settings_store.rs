@@ -34,6 +34,14 @@ pub fn load_settings() -> LauncherSettings {
         }
     }
 
+    if let Ok(provider) = std::env::var("BUSCADOR_WEB_PROVIDER") {
+        loaded.web_provider = provider.trim().to_string();
+    }
+
+    if let Ok(api_key) = std::env::var("BUSCADOR_WEB_API_KEY") {
+        loaded.web_api_key = api_key.trim().to_string();
+    }
+
     #[cfg(target_os = "windows")]
     {
         loaded.start_with_windows = is_windows_autostart_enabled();
@@ -85,6 +93,8 @@ fn default_settings() -> LauncherSettings {
         start_with_windows: false,
         roots: vec![],
         max_files: 25_000,
+        web_provider: String::new(),
+        web_api_key: String::new(),
     }
 }
 

@@ -315,7 +315,7 @@ body {
   border: 1.1px solid transparent;
   border-radius: 20px;
   background:
-    linear-gradient(rgba(136, 174, 242, 0.26), rgba(160, 135, 232, 0.22)) padding-box,
+    linear-gradient(rgba(126, 166, 242, 0.52), rgba(152, 128, 232, 0.48)) padding-box,
     linear-gradient(95deg, rgba(113, 206, 252, 0.95), rgba(208, 159, 255, 0.95)) border-box;
   padding: 10px 8px 11px;
   margin-bottom: 10px;
@@ -324,7 +324,7 @@ body {
 .calc-expression {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--text-subtle);
+  color: color-mix(in srgb, var(--text-main) 84%, white);
 }
 
 .calc-value {
@@ -332,6 +332,8 @@ body {
   font-size: clamp(1.8rem, 2vw, 2.45rem);
   font-family: var(--font-strong);
   letter-spacing: -0.02em;
+  color: color-mix(in srgb, var(--text-main) 94%, white);
+  text-shadow: 0 1px 10px rgba(24, 152, 216, 0.2);
 }
 
 .status-line {
@@ -378,14 +380,14 @@ body {
 
 .result-row:hover {
   background: var(--card-hover);
-  transform: scale(1.005);
+  transform: translateY(-1px);
   box-shadow: 0 8px 16px -12px var(--selection-glow);
 }
 
 .result-row.selected {
   background: var(--card-selected);
   border-color: rgba(195, 208, 245, 0.98);
-  transform: scale(1.007);
+  transform: translateY(-1px);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--selection-glow) 75%, transparent),
     0 12px 20px -14px var(--selection-glow);

@@ -6,6 +6,7 @@ pub enum SearchResultKind {
     App,
     Command,
     File,
+    Web,
     Calculation,
     Info,
 }
@@ -43,4 +44,8 @@ pub struct LauncherSettings {
     pub start_with_windows: bool,
     pub roots: Vec<String>,
     pub max_files: usize,
+    #[serde(default)]
+    pub web_provider: String,
+    #[serde(default)]
+    pub web_api_key: String,
 }

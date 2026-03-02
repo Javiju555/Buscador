@@ -117,6 +117,32 @@ $env:BUSCADOR_MAX_FILES="12000"
 cargo tauri dev --no-watch
 ```
 
+## Busqueda web (opcional, sin historial)
+
+El modo web usa el prefijo `w` y mantiene UX minimalista:
+
+- `w clima madrid`
+- Muestra hasta 5 resultados web relevantes (si hay API configurada)
+- Siempre agrega una fila final: **Abrir busqueda en navegador**
+- `Enter` abre la URL seleccionada en el navegador predeterminado
+
+Sin API key, Buscador sigue funcionando y muestra solo la fila final de abrir busqueda.
+
+Variables de entorno:
+
+- `BUSCADOR_WEB_PROVIDER` (`brave` o vacio)
+- `BUSCADOR_WEB_API_KEY` (clave del proveedor)
+
+Ejemplo PowerShell:
+
+```powershell
+$env:BUSCADOR_WEB_PROVIDER="brave"
+$env:BUSCADOR_WEB_API_KEY="tu_api_key"
+cargo tauri dev --no-watch
+```
+
+Nota para open source: documenta que la API key es opcional y no debe subirse al repositorio.
+
 ## Atajos y prefijos
 
 - `Ctrl+Space`: abrir/cerrar launcher
@@ -126,6 +152,7 @@ cargo tauri dev --no-watch
 - `>texto`: priorizar comandos
 - `/texto`: solo archivos
 - `=expresion`: solo calculadora
+- `w texto`: resultados web (top + abrir busqueda)
 
 ## Nota sobre version anterior
 

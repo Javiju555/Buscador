@@ -1,13 +1,17 @@
+use std::borrow::Cow;
+
 use crate::app_catalog::AppCatalog;
 use crate::calculator::evaluate;
 use crate::command_catalog::CommandCatalog;
 use crate::file_catalog::FileCatalog;
 use crate::models::{LauncherSettings, SearchResponse, SearchResult, SearchResultKind};
+use crate::web_search::WebSearchService;
 
 pub struct SearchService {
     app_catalog: AppCatalog,
     command_catalog: CommandCatalog,
     file_catalog: FileCatalog,
+    web_search: WebSearchService,
 }
 
 impl SearchService {
@@ -16,6 +20,7 @@ impl SearchService {
             app_catalog: AppCatalog::new(),
             command_catalog: CommandCatalog::new(),
             file_catalog: FileCatalog::new(settings),
+            web_search: WebSearchService::new(),
         }
     }
 
@@ -58,8 +63,27 @@ impl SearchService {
         }
 
         if mode == SearchMode::Calculation {
+            let mut results = build_calculation(&query, true);
+            let remaining = limit.saturating_sub(results.len());
+            if remaining > 0 {
+                results.extend(build_math_autocomplete(&query, remaining, true));
+            }
             return SearchResponse {
-                results: build_calculation(&query, true),
+                results,
+                file_indexing: self.file_catalog.is_indexing(),
+            };
+        }
+
+        if mode == SearchMode::Web {
+            let settings = self.file_catalog.settings();
+            return SearchResponse {
+                results: build_web_results(
+                    &query,
+                    limit,
+                    &self.web_search,
+                    &settings.web_provider,
+                    &settings.web_api_key,
+                ),
                 file_indexing: self.file_catalog.is_indexing(),
             };
         }
@@ -68,6 +92,12 @@ impl SearchService {
             build_calculation(&query, false).into_iter().next()
         } else {
             None
+        };
+
+        let mut math_hints = if mode == SearchMode::Mixed && looks_like_math(&query) {
+            build_math_autocomplete(&query, 3, false)
+        } else {
+            vec![]
         };
 
         let mut bag: Vec<SearchResult> = vec![];
@@ -84,8 +114,11 @@ impl SearchService {
         bag.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.title.cmp(&b.title)));
 
         let reserve_for_calc = usize::from(calculation.is_some());
-        let non_calc_limit = limit.saturating_sub(reserve_for_calc);
+        let reserve_for_hints = math_hints.len();
+        let non_calc_limit = limit.saturating_sub(reserve_for_calc + reserve_for_hints);
         bag.truncate(non_calc_limit);
+
+        bag.append(&mut math_hints);
 
         if let Some(calc) = calculation {
             bag.push(calc);
@@ -103,11 +136,18 @@ enum SearchMode {
     Mixed,
     Command,
     File,
+    Web,
     Calculation,
 }
 
 fn parse_mode(raw_query: &str) -> (SearchMode, String) {
     let query = raw_query.trim();
+    if let Some(stripped) = query.strip_prefix("w ") {
+        return (SearchMode::Web, stripped.trim().to_string());
+    }
+    if let Some(stripped) = query.strip_prefix("w:") {
+        return (SearchMode::Web, stripped.trim().to_string());
+    }
     if let Some(stripped) = query.strip_prefix('>') {
         return (SearchMode::Command, stripped.trim().to_string());
     }
@@ -118,6 +158,65 @@ fn parse_mode(raw_query: &str) -> (SearchMode, String) {
         return (SearchMode::Calculation, stripped.trim().to_string());
     }
     (SearchMode::Mixed, query.to_string())
+}
+
+fn build_web_results(
+    query: &str,
+    limit: usize,
+    web_search: &WebSearchService,
+    provider: &str,
+    api_key: &str,
+) -> Vec<SearchResult> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return vec![];
+    }
+
+    let total_rows = limit.min(6).max(1);
+    let top_hits_limit = total_rows.saturating_sub(1).min(5);
+    let encoded = encode_query_component(trimmed);
+    let url = format!("https://www.bing.com/search?q={encoded}");
+
+    let mut results: Vec<SearchResult> = web_search
+        .search(trimmed, top_hits_limit, provider, api_key)
+        .into_iter()
+        .map(|item| SearchResult {
+            kind: SearchResultKind::Web,
+            title: item.title,
+            subtitle: if item.snippet.is_empty() {
+                "Enter para abrir en navegador predeterminado".to_string()
+            } else {
+                item.snippet
+            },
+            primary_value: item.url,
+            score: 620,
+        })
+        .collect();
+
+    results.push(SearchResult {
+        kind: SearchResultKind::Web,
+        title: format!("Abrir busqueda en navegador: {trimmed}"),
+        subtitle: "Busca directamente en el motor predeterminado del launcher".to_string(),
+        primary_value: url,
+        score: 500,
+    });
+
+    results.truncate(total_rows);
+    results
+}
+
+fn encode_query_component(text: &str) -> String {
+    let mut encoded = String::new();
+    for byte in text.as_bytes() {
+        match *byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(char::from(*byte));
+            }
+            b' ' => encoded.push('+'),
+            value => encoded.push_str(&format!("%{value:02X}")),
+        }
+    }
+    encoded
 }
 
 fn build_calculation(expression: &str, explicit: bool) -> Vec<SearchResult> {
@@ -148,6 +247,122 @@ fn build_calculation(expression: &str, explicit: bool) -> Vec<SearchResult> {
     }
 }
 
+struct MathHint {
+    token: &'static str,
+    insert: &'static str,
+    label: &'static str,
+    description: &'static str,
+}
+
+const MATH_HINTS: &[MathHint] = &[
+    MathHint { token: "sin", insert: "sin()", label: "sin(x)", description: "Seno (radianes)" },
+    MathHint { token: "cos", insert: "cos()", label: "cos(x)", description: "Coseno (radianes)" },
+    MathHint { token: "tan", insert: "tan()", label: "tan(x)", description: "Tangente (radianes)" },
+    MathHint { token: "asin", insert: "asin()", label: "asin(x)", description: "Arcoseno" },
+    MathHint { token: "acos", insert: "acos()", label: "acos(x)", description: "Arcocoseno" },
+    MathHint { token: "atan", insert: "atan()", label: "atan(x)", description: "Arcotangente" },
+    MathHint { token: "sqrt", insert: "sqrt()", label: "sqrt(x)", description: "Raiz cuadrada" },
+    MathHint { token: "cbrt", insert: "cbrt()", label: "cbrt(x)", description: "Raiz cubica" },
+    MathHint { token: "ln", insert: "ln()", label: "ln(x)", description: "Logaritmo natural" },
+    MathHint { token: "log", insert: "log()", label: "log(x,b)", description: "Logaritmo base b (1 o 2 args)" },
+    MathHint { token: "log10", insert: "log10()", label: "log10(x)", description: "Logaritmo base 10" },
+    MathHint { token: "pow", insert: "pow(,)", label: "pow(x,y)", description: "Potencia x^y" },
+    MathHint { token: "fact", insert: "fact()", label: "fact(n)", description: "Factorial" },
+    MathHint { token: "perm", insert: "perm(,)", label: "perm(n,r)", description: "Permutaciones nPr" },
+    MathHint { token: "comb", insert: "comb(,)", label: "comb(n,r)", description: "Combinaciones nCr" },
+    MathHint { token: "abs", insert: "abs()", label: "abs(x)", description: "Valor absoluto" },
+    MathHint { token: "min", insert: "min(,)", label: "min(a,b,...)", description: "Minimo de varios valores" },
+    MathHint { token: "max", insert: "max(,)", label: "max(a,b,...)", description: "Maximo de varios valores" },
+    MathHint { token: "clamp", insert: "clamp(,,)", label: "clamp(x,min,max)", description: "Limita x al rango [min,max]" },
+    MathHint { token: "floor", insert: "floor()", label: "floor(x)", description: "Redondeo hacia abajo" },
+    MathHint { token: "ceil", insert: "ceil()", label: "ceil(x)", description: "Redondeo hacia arriba" },
+    MathHint { token: "round", insert: "round()", label: "round(x)", description: "Redondeo al entero mas cercano" },
+    MathHint { token: "exp", insert: "exp()", label: "exp(x)", description: "e^x" },
+    MathHint { token: "deg", insert: "deg()", label: "deg(x)", description: "Convierte radianes a grados" },
+    MathHint { token: "rad", insert: "rad()", label: "rad(x)", description: "Convierte grados a radianes" },
+    MathHint { token: "pi", insert: "pi", label: "pi", description: "Constante PI" },
+    MathHint { token: "e", insert: "e", label: "e", description: "Constante de Euler" },
+    MathHint { token: "tau", insert: "tau", label: "tau", description: "Constante TAU" },
+];
+
+fn build_math_autocomplete(expression: &str, limit: usize, explicit: bool) -> Vec<SearchResult> {
+    if limit == 0 {
+        return vec![];
+    }
+
+    let token = current_math_token(expression);
+    let normalized_token = token.to_ascii_lowercase();
+
+    let mut ranked: Vec<(&MathHint, i32)> = MATH_HINTS
+        .iter()
+        .filter_map(|hint| {
+            if normalized_token.is_empty() {
+                return Some((hint, base_hint_score(hint, explicit) - 25));
+            }
+
+            if hint.token == normalized_token {
+                return Some((hint, base_hint_score(hint, explicit) + 48));
+            }
+
+            if hint.token.starts_with(&normalized_token) {
+                return Some((hint, base_hint_score(hint, explicit) + 35 - normalized_token.len() as i32));
+            }
+
+            if hint.token.contains(&normalized_token) {
+                return Some((hint, base_hint_score(hint, explicit) + 8));
+            }
+
+            None
+        })
+        .collect();
+
+    ranked.sort_by(|(left_hint, left_score), (right_hint, right_score)| {
+        right_score
+            .cmp(left_score)
+            .then_with(|| left_hint.token.len().cmp(&right_hint.token.len()))
+            .then_with(|| left_hint.token.cmp(right_hint.token))
+    });
+
+    ranked
+        .into_iter()
+        .take(limit)
+        .map(|(hint, score)| SearchResult {
+            kind: SearchResultKind::Info,
+            title: format!("Mates: {}", hint.label),
+            subtitle: format!("{} · Tab para autocompletar", hint.description),
+            primary_value: format!("math_complete:{}", hint.insert),
+            score,
+        })
+        .collect()
+}
+
+fn current_math_token(expression: &str) -> Cow<'_, str> {
+    let trimmed = expression.trim_end();
+    if trimmed.is_empty() {
+        return Cow::Borrowed("");
+    }
+
+    let mut start = trimmed.len();
+    for (index, character) in trimmed.char_indices().rev() {
+        if character.is_ascii_alphabetic() || character == '_' {
+            start = index;
+            continue;
+        }
+        break;
+    }
+
+    if start >= trimmed.len() {
+        Cow::Borrowed("")
+    } else {
+        Cow::Owned(trimmed[start..].to_string())
+    }
+}
+
+fn base_hint_score(hint: &MathHint, explicit: bool) -> i32 {
+    let baseline = if explicit { 420 } else { 170 };
+    baseline + (24 - i32::try_from(hint.token.len()).unwrap_or(0))
+}
+
 fn format_number(value: f64) -> String {
     let mut text = format!("{value:.12}");
     while text.contains('.') && text.ends_with('0') {
@@ -160,19 +375,37 @@ fn format_number(value: f64) -> String {
 }
 
 fn looks_like_math(query: &str) -> bool {
-    let mut has_operator = false;
-    for character in query.chars() {
-        if matches!(character, '+' | '-' | '*' | '/' | '%' | '^') {
-            has_operator = true;
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    const FUNCTION_NAMES: &[&str] = &[
+        "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "sqrt", "cbrt",
+        "ln", "log", "log10", "exp", "abs", "floor", "ceil", "round", "trunc", "sign", "pow",
+        "min", "max", "clamp", "rad", "deg", "fact", "perm", "comb", "pi", "tau", "e",
+    ];
+
+    let mut has_math_marker = false;
+    for character in trimmed.chars() {
+        if matches!(character, '+' | '-' | '*' | '/' | '%' | '^' | '(' | ')' | ',' | '.' | ';') {
+            has_math_marker = true;
             continue;
         }
-        if character.is_ascii_digit()
-            || character.is_whitespace()
-            || matches!(character, '(' | ')' | '.' | ',')
-        {
+        if character.is_ascii_digit() || character.is_ascii_alphabetic() || character.is_whitespace() {
             continue;
         }
         return false;
     }
-    has_operator
+
+    if has_math_marker {
+        return true;
+    }
+
+    let lowered = trimmed.to_lowercase();
+    FUNCTION_NAMES.iter().any(|name| {
+        lowered == *name
+            || lowered.starts_with(&format!("{name}("))
+            || lowered.starts_with(&format!("{name} ("))
+    })
 }

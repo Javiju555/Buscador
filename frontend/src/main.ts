@@ -2,7 +2,7 @@ import "./style.css";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
-type SearchResultKind = "app" | "command" | "file" | "calculation" | "info";
+type SearchResultKind = "app" | "command" | "file" | "web" | "calculation" | "info";
 
 interface SearchResult {
   kind: SearchResultKind;
@@ -21,6 +21,8 @@ interface LauncherSettings {
   startWithWindows: boolean;
   roots: string[];
   maxFiles: number;
+  webProvider: string;
+  webApiKey: string;
 }
 
 const COLLAPSED_HEIGHT = 92;
@@ -47,14 +49,14 @@ appRoot.innerHTML = `
         type="text"
         autocomplete="off"
         spellcheck="false"
-        placeholder="Buscar apps, comandos, archivos o calculos"
+        placeholder="Buscar apps, comandos, archivos, web (w ...) o calculos"
       />
       <button id="settings-toggle" class="settings-toggle" type="button" title="Ajustes">
         ⚙
       </button>
     </section>
     <section id="settings-panel" class="settings-panel hidden">
-      <p class="settings-title">Ajustes de indexado</p>
+      <p class="settings-title">Ajustes</p>
       <label class="settings-label" for="settings-roots">Carpetas raiz (; separado)</label>
       <input
         id="settings-roots"
@@ -66,6 +68,24 @@ appRoot.innerHTML = `
       />
       <label class="settings-label" for="settings-max-files">Maximo de archivos</label>
       <input id="settings-max-files" class="settings-input" type="number" min="3000" max="100000" step="500" />
+      <label class="settings-label" for="settings-web-provider">Proveedor web (opcional)</label>
+      <input
+        id="settings-web-provider"
+        class="settings-input"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="brave"
+      />
+      <label class="settings-label" for="settings-web-api-key">API key web (opcional)</label>
+      <input
+        id="settings-web-api-key"
+        class="settings-input"
+        type="password"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="Si vacio: solo abrir busqueda en navegador"
+      />
       <label class="settings-checkbox-row" for="settings-start-with-windows">
         <input id="settings-start-with-windows" type="checkbox" />
         <span>Iniciar con Windows</span>
@@ -98,6 +118,8 @@ const settingsToggle = document.querySelector<HTMLButtonElement>("#settings-togg
 const settingsPanel = document.querySelector<HTMLElement>("#settings-panel")!;
 const settingsRootsInput = document.querySelector<HTMLInputElement>("#settings-roots")!;
 const settingsMaxFilesInput = document.querySelector<HTMLInputElement>("#settings-max-files")!;
+const settingsWebProviderInput = document.querySelector<HTMLInputElement>("#settings-web-provider")!;
+const settingsWebApiKeyInput = document.querySelector<HTMLInputElement>("#settings-web-api-key")!;
 const settingsStartWithWindowsInput = document.querySelector<HTMLInputElement>(
   "#settings-start-with-windows",
 )!;
@@ -296,6 +318,14 @@ function initKeyboardHandlers(): void {
       return;
     }
 
+    if (event.key === "Tab") {
+      const applied = applyMathAutocompleteFromSelection();
+      if (applied) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     if (event.key === "ArrowDown") {
       if (nonCalculationResults.length > 0) {
         event.preventDefault();
@@ -426,7 +456,12 @@ function shouldUseProgressivePhase(query: string): boolean {
   if (!trimmed) {
     return false;
   }
-  return !trimmed.startsWith(">") && !trimmed.startsWith("=");
+  return (
+    !trimmed.startsWith(">") &&
+    !trimmed.startsWith("=") &&
+    !trimmed.startsWith("w ") &&
+    !trimmed.startsWith("w:")
+  );
 }
 
 async function openSettingsPanel(): Promise<void> {
@@ -458,6 +493,8 @@ async function loadSettingsIntoUI(): Promise<void> {
     const settings = await invoke<LauncherSettings>("get_settings");
     settingsRootsInput.value = settings.roots.join(";");
     settingsMaxFilesInput.value = String(settings.maxFiles);
+    settingsWebProviderInput.value = settings.webProvider ?? "";
+    settingsWebApiKeyInput.value = settings.webApiKey ?? "";
     settingsStartWithWindowsInput.checked = settings.startWithWindows;
     settingsLoaded = true;
   } catch (error) {
@@ -472,17 +509,21 @@ async function saveSettingsFromUI(): Promise<void> {
     .filter((value) => value.length > 0);
   const parsedMax = Number.parseInt(settingsMaxFilesInput.value, 10);
   const maxFiles = Number.isFinite(parsedMax) ? parsedMax : 25_000;
+  const webProvider = settingsWebProviderInput.value.trim();
+  const webApiKey = settingsWebApiKeyInput.value.trim();
   const startWithWindows = settingsStartWithWindowsInput.checked;
 
   try {
     settingsSaveButton.disabled = true;
     settingsStatus.textContent = "Guardando y reindexando...";
     const saved = await invoke<LauncherSettings>("save_settings", {
-      settings: { startWithWindows, roots, maxFiles },
+      settings: { startWithWindows, roots, maxFiles, webProvider, webApiKey },
     });
 
     settingsRootsInput.value = saved.roots.join(";");
     settingsMaxFilesInput.value = String(saved.maxFiles);
+    settingsWebProviderInput.value = saved.webProvider ?? "";
+    settingsWebApiKeyInput.value = saved.webApiKey ?? "";
     settingsStartWithWindowsInput.checked = saved.startWithWindows;
     settingsStatus.textContent = "Ajustes guardados y reindexado lanzado.";
     settingsLoaded = true;
@@ -604,6 +645,12 @@ function updateStatus(query: string): void {
     return;
   }
 
+  const selected = nonCalculationResults[selectedIndex];
+  if (selected && isMathAutocompleteResult(selected)) {
+    statusLine.textContent = "Tab autocompleta formula · Enter tambien aplica sugerencia.";
+    return;
+  }
+
   statusLine.textContent = progressivePhaseActive
     ? `${nonCalculationResults.length} resultado(s). Afinando archivos...`
     : `${nonCalculationResults.length} resultado(s). Enter para abrir.`;
@@ -618,6 +665,11 @@ async function executeSelection(): Promise<void> {
 
   const selected = nonCalculationResults[selectedIndex];
   if (selected) {
+    if (isMathAutocompleteResult(selected)) {
+      applyMathAutocompleteFromSelection(selected);
+      return;
+    }
+
     await invoke("execute", {
       payload: {
         kind: selected.kind,
@@ -633,6 +685,50 @@ async function executeSelection(): Promise<void> {
     await invoke("copy_text", { text: calculationResult.primaryValue });
     statusLine.textContent = `Copiado: ${calculationResult.primaryValue}`;
   }
+}
+
+function isMathAutocompleteResult(result: SearchResult): boolean {
+  return result.kind === "info" && result.primaryValue.startsWith("math_complete:");
+}
+
+function applyMathAutocompleteFromSelection(forcedResult?: SearchResult): boolean {
+  const selected = forcedResult ?? nonCalculationResults[selectedIndex];
+  if (!selected || !isMathAutocompleteResult(selected)) {
+    return false;
+  }
+
+  const completion = selected.primaryValue.slice("math_complete:".length);
+  if (!completion) {
+    return false;
+  }
+
+  const { nextQuery, caretPosition } = applyMathCompletion(currentQuery, completion);
+  queryInput.value = nextQuery;
+  currentQuery = nextQuery;
+  queryInput.focus({ preventScroll: true });
+  queryInput.setSelectionRange(caretPosition, caretPosition);
+  void runSearch(nextQuery);
+  return true;
+}
+
+function applyMathCompletion(rawQuery: string, completion: string): { nextQuery: string; caretPosition: number } {
+  const trimmedRight = rawQuery.replace(/\s+$/g, "");
+  let start = trimmedRight.length;
+  while (start > 0) {
+    const previous = trimmedRight[start - 1];
+    if (/[a-zA-Z_]/.test(previous)) {
+      start -= 1;
+      continue;
+    }
+    break;
+  }
+
+  const nextQuery = `${trimmedRight.slice(0, start)}${completion}`;
+  const insideParentheses = completion.includes("(") && completion.endsWith(")");
+  return {
+    nextQuery,
+    caretPosition: insideParentheses ? nextQuery.length - 1 : nextQuery.length,
+  };
 }
 
 function resetState(): void {
@@ -782,6 +878,8 @@ function iconFor(kind: SearchResultKind): string {
       return "⌘";
     case "file":
       return "▣";
+    case "web":
+      return "↗";
     case "calculation":
       return "∑";
     default:
@@ -813,6 +911,8 @@ function badgeFor(kind: SearchResultKind): string {
       return "CMD";
     case "file":
       return "FILE";
+    case "web":
+      return "WEB";
     case "calculation":
       return "CALC";
     default:

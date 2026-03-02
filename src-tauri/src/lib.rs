@@ -7,6 +7,7 @@ mod models;
 mod search_service;
 mod settings_store;
 mod text_matcher;
+mod web_search;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -191,6 +192,9 @@ fn cursor_inside_window(window: &WebviewWindow) -> bool {
 fn execute_payload(payload: ExecutePayload) -> Result<()> {
     match payload.kind {
         SearchResultKind::App | SearchResultKind::File => {
+            open_path(&payload.primary_value)?;
+        }
+        SearchResultKind::Web => {
             open_path(&payload.primary_value)?;
         }
         SearchResultKind::Command => {

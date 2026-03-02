@@ -202,6 +202,8 @@ fn normalize_settings(settings: LauncherSettings) -> LauncherSettings {
         start_with_windows: settings.start_with_windows,
         roots,
         max_files,
+        web_provider: settings.web_provider.trim().to_ascii_lowercase(),
+        web_api_key: settings.web_api_key.trim().to_string(),
     }
 }
 
@@ -255,6 +257,8 @@ fn default_settings() -> LauncherSettings {
         start_with_windows: false,
         roots: vec![],
         max_files: DEFAULT_MAX_ENTRIES,
+        web_provider: String::new(),
+        web_api_key: String::new(),
     }
 }
 
