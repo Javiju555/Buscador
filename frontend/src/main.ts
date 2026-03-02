@@ -24,7 +24,7 @@ interface LauncherSettings {
 }
 
 const COLLAPSED_HEIGHT = 92;
-const MAX_WINDOW_HEIGHT = 560;
+const MAX_WINDOW_HEIGHT = 680;
 const RESULTS_LIMIT = 6;
 const SEARCH_LIMIT = 12;
 const FULL_SEARCH_DELAY_MS = 130;
@@ -120,6 +120,7 @@ let progressivePhaseActive = false;
 let settingsOpen = false;
 let settingsLoaded = false;
 let focusBridgeRequested = false;
+let selectionMode: "calculation" | "results" = "results";
 
 const iconCache = new Map<string, string | null>();
 const pendingIcons = new Set<string>();
@@ -298,8 +299,15 @@ function initKeyboardHandlers(): void {
     if (event.key === "ArrowDown") {
       if (nonCalculationResults.length > 0) {
         event.preventDefault();
-        const nextIndex = (selectedIndex + 1) % nonCalculationResults.length;
-        selectResultIndex(nextIndex);
+        if (selectionMode === "calculation") {
+          selectionMode = "results";
+          selectResultIndex(0);
+        } else {
+          const nextIndex = (selectedIndex + 1) % nonCalculationResults.length;
+          selectResultIndex(nextIndex);
+        }
+        updateStatus(currentQuery);
+        renderResults();
       }
       return;
     }
@@ -307,9 +315,18 @@ function initKeyboardHandlers(): void {
     if (event.key === "ArrowUp") {
       if (nonCalculationResults.length > 0) {
         event.preventDefault();
-        const nextIndex =
-          (selectedIndex - 1 + nonCalculationResults.length) % nonCalculationResults.length;
-        selectResultIndex(nextIndex);
+        if (selectionMode === "calculation") {
+          selectResultIndex(nonCalculationResults.length - 1);
+          selectionMode = "results";
+        } else if (selectedIndex === 0 && calculationResult) {
+          selectionMode = "calculation";
+        } else {
+          const nextIndex =
+            (selectedIndex - 1 + nonCalculationResults.length) % nonCalculationResults.length;
+          selectResultIndex(nextIndex);
+        }
+        updateStatus(currentQuery);
+        renderResults();
       }
       return;
     }
@@ -386,6 +403,12 @@ function applyResponse(response: SearchResponse, query: string): void {
   nonCalculationResults = response.results
     .filter((item) => item.kind !== "calculation")
     .slice(0, RESULTS_LIMIT);
+
+  if (calculationResult) {
+    selectionMode = "calculation";
+  } else {
+    selectionMode = "results";
+  }
 
   selectedIndex = Math.min(selectedIndex, Math.max(nonCalculationResults.length - 1, 0));
   updateStatus(query);
@@ -495,7 +518,7 @@ function renderResults(): void {
     const result = nonCalculationResults[i];
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `result-row ${selectedIndex === i ? "selected" : ""}`;
+    row.className = `result-row ${selectionMode === "results" && selectedIndex === i ? "selected" : ""}`;
     row.dataset.index = String(i);
 
     const iconSlot = document.createElement("span");
@@ -574,12 +597,25 @@ function updateStatus(query: string): void {
     return;
   }
 
+  if (calculationResult && selectionMode === "calculation") {
+    statusLine.textContent = progressivePhaseActive
+      ? `${nonCalculationResults.length} resultado(s). Enter copia el calculo; ↓ para abrir resultados.`
+      : `${nonCalculationResults.length} resultado(s). Enter copia el calculo; ↓ para abrir resultados.`;
+    return;
+  }
+
   statusLine.textContent = progressivePhaseActive
     ? `${nonCalculationResults.length} resultado(s). Afinando archivos...`
     : `${nonCalculationResults.length} resultado(s). Enter para abrir.`;
 }
 
 async function executeSelection(): Promise<void> {
+  if (selectionMode === "calculation" && calculationResult) {
+    await invoke("copy_text", { text: calculationResult.primaryValue });
+    statusLine.textContent = `Copiado: ${calculationResult.primaryValue}`;
+    return;
+  }
+
   const selected = nonCalculationResults[selectedIndex];
   if (selected) {
     await invoke("execute", {
@@ -610,6 +646,7 @@ function resetState(): void {
   currentQuery = "";
   queryInput.value = "";
   selectedIndex = 0;
+  selectionMode = "results";
   lastResponse = { results: [], fileIndexing: false };
   nonCalculationResults = [];
   calculationResult = undefined;

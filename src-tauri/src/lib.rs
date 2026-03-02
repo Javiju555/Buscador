@@ -482,7 +482,7 @@ fn resize_main_window(app: &tauri::AppHandle, height: f64) -> Result<()> {
         .context("No se pudo leer tamano actual de la ventana")?;
 
     let width_logical = f64::from(current_size.width) / scale_factor;
-    let target_height = height.clamp(80.0, 560.0);
+    let target_height = height.clamp(80.0, 680.0);
     window
         .set_size(Size::Logical(LogicalSize::new(
             width_logical,
