@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use arboard::Clipboard;
 use models::{ExecutePayload, LauncherSettings, SearchResponse, SearchResultKind};
 use search_service::SearchService;
@@ -195,7 +195,7 @@ fn execute_payload(payload: ExecutePayload) -> Result<()> {
             open_path(&payload.primary_value)?;
         }
         SearchResultKind::Web => {
-            open_path(&payload.primary_value)?;
+            open_url(&payload.primary_value)?;
         }
         SearchResultKind::Command => {
             let args = resolve_command_arguments(&payload.raw_query, &payload.title);
@@ -211,6 +211,45 @@ fn open_path(path: &str) -> Result<()> {
         .arg(path)
         .spawn()
         .context("No se pudo abrir el recurso seleccionado")?;
+    Ok(())
+}
+
+fn open_url(url: &str) -> Result<()> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        bail!("URL web vacia");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("rundll32")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(trimmed)
+            .spawn()
+            .context("No se pudo abrir la URL en el navegador predeterminado")?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(trimmed)
+            .spawn()
+            .context("No se pudo abrir la URL en el navegador predeterminado")?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(trimmed)
+            .spawn()
+            .context("No se pudo abrir la URL en el navegador predeterminado")?;
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        open_path(trimmed)?;
+    }
+
     Ok(())
 }
 
