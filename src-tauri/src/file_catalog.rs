@@ -254,7 +254,7 @@ fn default_roots() -> Vec<PathBuf> {
 
 fn default_settings() -> LauncherSettings {
     LauncherSettings {
-        start_with_windows: false,
+        start_with_windows: true,
         roots: vec![],
         max_files: DEFAULT_MAX_ENTRIES,
         web_provider: String::new(),

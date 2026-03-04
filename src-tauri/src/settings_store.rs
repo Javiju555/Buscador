@@ -9,6 +9,7 @@ use winreg::RegKey;
 
 pub fn load_settings() -> LauncherSettings {
     let path = settings_path();
+    let settings_file_exists = path.exists();
     let mut loaded = match std::fs::read_to_string(path) {
         Ok(value) => {
             serde_json::from_str::<LauncherSettings>(&value).unwrap_or_else(|_| default_settings())
@@ -44,7 +45,12 @@ pub fn load_settings() -> LauncherSettings {
 
     #[cfg(target_os = "windows")]
     {
-        loaded.start_with_windows = is_windows_autostart_enabled();
+        let autostart_enabled = is_windows_autostart_enabled();
+        if autostart_enabled {
+            loaded.start_with_windows = true;
+        } else if !settings_file_exists {
+            loaded.start_with_windows = true;
+        }
     }
 
     loaded
@@ -90,7 +96,7 @@ fn settings_path() -> PathBuf {
 
 fn default_settings() -> LauncherSettings {
     LauncherSettings {
-        start_with_windows: false,
+        start_with_windows: true,
         roots: vec![],
         max_files: 25_000,
         web_provider: String::new(),

@@ -678,6 +678,8 @@ async function executeSelection(): Promise<void> {
         rawQuery: currentQuery,
       },
     });
+
+    await invoke("hide_launcher");
     return;
   }
 
