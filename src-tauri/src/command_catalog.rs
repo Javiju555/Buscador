@@ -1,5 +1,9 @@
 use std::collections::{BTreeMap, HashSet};
 use std::env;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(not(target_os = "windows"))]
 use std::path::Path;
 
 use crate::models::{SearchResult, SearchResultKind};
@@ -45,7 +49,10 @@ impl CommandCatalog {
                     .to_ascii_lowercase()
                     .contains("\\windows\\system32\\")
                 {
-                    points -= 34;
+                    #[cfg(target_os = "windows")]
+                    {
+                        points -= 34;
+                    }
                 }
 
                 Some((points + 42, entry))
@@ -78,8 +85,11 @@ struct CommandEntry {
 
 fn build_catalog() -> Vec<CommandEntry> {
     let path_value = env::var("PATH").unwrap_or_default();
+
+    #[cfg(target_os = "windows")]
     let path_ext = env::var("PATHEXT").unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM;.PS1".to_string());
 
+    #[cfg(target_os = "windows")]
     let allowed_extensions: HashSet<String> = path_ext
         .split(';')
         .filter(|part| !part.trim().is_empty())
@@ -95,11 +105,7 @@ fn build_catalog() -> Vec<CommandEntry> {
 
     let mut names = BTreeMap::<String, CommandEntry>::new();
 
-    for folder in path_value
-        .split(';')
-        .map(str::trim)
-        .filter(|folder| !folder.is_empty() && Path::new(folder).exists())
-    {
+    for folder in env::split_paths(&path_value).filter(|path| path.exists()) {
         let entries = match std::fs::read_dir(folder) {
             Ok(entries) => entries,
             Err(_) => continue,
@@ -111,13 +117,23 @@ fn build_catalog() -> Vec<CommandEntry> {
                 continue;
             }
 
-            let extension = match path.extension().and_then(|e| e.to_str()) {
-                Some(ext) => format!(".{}", ext.to_ascii_lowercase()),
-                None => continue,
-            };
+            #[cfg(target_os = "windows")]
+            {
+                let extension = match path.extension().and_then(|e| e.to_str()) {
+                    Some(ext) => format!(".{}", ext.to_ascii_lowercase()),
+                    None => continue,
+                };
 
-            if !allowed_extensions.contains(&extension) {
-                continue;
+                if !allowed_extensions.contains(&extension) {
+                    continue;
+                }
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                if !is_unix_executable(&path) {
+                    continue;
+                }
             }
 
             let Some(name) = path.file_stem().and_then(|name| name.to_str()) else {
@@ -137,4 +153,14 @@ fn build_catalog() -> Vec<CommandEntry> {
     }
 
     names.into_values().collect()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_unix_executable(path: &Path) -> bool {
+    let metadata = match std::fs::metadata(path) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    metadata.permissions().mode() & 0o111 != 0
 }

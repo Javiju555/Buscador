@@ -75,7 +75,7 @@ fn save_settings(
     state: tauri::State<'_, AppState>,
 ) -> Result<LauncherSettings, String> {
     let normalized = state.search_service.update_launcher_settings(settings);
-    apply_windows_autostart_setting(normalized.start_with_windows)
+    apply_autostart_setting(normalized.start_with_windows)
         .map_err(|error| error.to_string())?;
     settings_store::save_settings(&normalized)?;
     Ok(normalized)
@@ -191,7 +191,10 @@ fn cursor_inside_window(window: &WebviewWindow) -> bool {
 
 fn execute_payload(payload: ExecutePayload) -> Result<()> {
     match payload.kind {
-        SearchResultKind::App | SearchResultKind::File => {
+        SearchResultKind::App => {
+            execute_app(&payload.primary_value)?;
+        }
+        SearchResultKind::File => {
             open_path(&payload.primary_value)?;
         }
         SearchResultKind::Web => {
@@ -206,11 +209,62 @@ fn execute_payload(payload: ExecutePayload) -> Result<()> {
     Ok(())
 }
 
+fn execute_app(target: &str) -> Result<()> {
+    let trimmed = target.trim();
+    if trimmed.is_empty() {
+        bail!("Ruta/comando de app vacio");
+    }
+
+    if trimmed.starts_with("shell:") {
+        return open_path(trimmed);
+    }
+
+    if PathBuf::from(trimmed).exists() {
+        return open_path(trimmed);
+    }
+
+    let parts = shlex::split(trimmed).unwrap_or_else(|| vec![trimmed.to_string()]);
+    let (command, args) = parts
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("No se pudo resolver comando de app"))?;
+    run_command(command, args)
+}
+
 fn open_path(path: &str) -> Result<()> {
-    Command::new("explorer")
-        .arg(path)
-        .spawn()
-        .context("No se pudo abrir el recurso seleccionado")?;
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        bail!("Ruta vacia");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(trimmed)
+            .spawn()
+            .context("No se pudo abrir el recurso seleccionado")?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(trimmed)
+            .spawn()
+            .context("No se pudo abrir el recurso seleccionado")?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(trimmed)
+            .spawn()
+            .context("No se pudo abrir el recurso seleccionado")?;
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        bail!("Sistema operativo no soportado para abrir rutas");
+    }
+
     Ok(())
 }
 
@@ -256,7 +310,7 @@ fn open_url(url: &str) -> Result<()> {
 fn run_command(command_path: &str, arguments: &[String]) -> Result<()> {
     let mut command = Command::new(command_path);
     command.args(arguments);
-    if let Some(home) = std::env::var_os("USERPROFILE") {
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
         command.current_dir(home);
     }
     command
@@ -659,7 +713,7 @@ fn detect_windows_theme() -> Option<&'static str> {
 }
 
 #[cfg(target_os = "windows")]
-fn maybe_seed_windows_autostart(settings: &LauncherSettings) {
+fn maybe_seed_autostart(settings: &LauncherSettings) {
     if !settings.start_with_windows {
         return;
     }
@@ -732,7 +786,7 @@ fn remove_windows_run_autostart() -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-fn apply_windows_autostart_setting(enabled: bool) -> Result<()> {
+fn apply_autostart_setting(enabled: bool) -> Result<()> {
     if enabled {
         let exe = std::env::current_exe().context("No se pudo resolver current_exe")?;
         let exe_text = exe.to_string_lossy().to_string();
@@ -740,11 +794,6 @@ fn apply_windows_autostart_setting(enabled: bool) -> Result<()> {
     }
 
     remove_windows_run_autostart()
-}
-
-#[cfg(not(target_os = "windows"))]
-fn apply_windows_autostart_setting(_enabled: bool) -> Result<()> {
-    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -758,8 +807,79 @@ fn autostart_seed_marker_path() -> PathBuf {
     PathBuf::from("autostart.seed")
 }
 
-#[cfg(not(target_os = "windows"))]
-fn maybe_seed_windows_autostart(_settings: &LauncherSettings) {}
+#[cfg(target_os = "linux")]
+fn maybe_seed_autostart(settings: &LauncherSettings) {
+    if !settings.start_with_windows {
+        return;
+    }
+
+    if linux_autostart_entry_path().exists() {
+        return;
+    }
+
+    if let Err(error) = set_linux_autostart() {
+        log::warn!("No se pudo configurar autostart inicial en Linux: {error}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn apply_autostart_setting(enabled: bool) -> Result<()> {
+    if enabled {
+        return set_linux_autostart();
+    }
+
+    remove_linux_autostart()
+}
+
+#[cfg(target_os = "linux")]
+fn set_linux_autostart() -> Result<()> {
+    let exe = std::env::current_exe().context("No se pudo resolver current_exe")?;
+    let desktop_entry = format!(
+        "[Desktop Entry]\nType=Application\nName=Buscador\nExec=\"{}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        exe.to_string_lossy()
+    );
+
+    let path = linux_autostart_entry_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).context("No se pudo crear carpeta de autostart Linux")?;
+    }
+    std::fs::write(path, desktop_entry).context("No se pudo escribir entrada autostart Linux")?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn remove_linux_autostart() -> Result<()> {
+    let path = linux_autostart_entry_path();
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("No se pudo eliminar entrada autostart Linux"),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_autostart_entry_path() -> PathBuf {
+    if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(config_home).join("autostart").join("buscador.desktop");
+    }
+
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home)
+            .join(".config")
+            .join("autostart")
+            .join("buscador.desktop");
+    }
+
+    PathBuf::from("buscador.desktop")
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn maybe_seed_autostart(_settings: &LauncherSettings) {}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn apply_autostart_setting(_enabled: bool) -> Result<()> {
+    Ok(())
+}
 
 #[cfg(not(target_os = "windows"))]
 fn detect_windows_theme() -> Option<&'static str> {
@@ -880,7 +1000,7 @@ pub fn run() {
         )
         .setup(move |app| {
             let app_handle = app.handle().clone();
-            maybe_seed_windows_autostart(&startup_settings_for_setup);
+            maybe_seed_autostart(&startup_settings_for_setup);
             ensure_keepalive_window(&app_handle)?;
 
             if let Some(window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {

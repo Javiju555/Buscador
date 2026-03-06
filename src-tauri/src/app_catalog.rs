@@ -126,6 +126,15 @@ struct AppEntry {
 }
 
 fn build_catalog() -> Vec<AppEntry> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut found = BTreeMap::<String, AppEntry>::new();
+        collect_linux_desktop_entries(&mut found);
+        return found.into_values().collect();
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
     let mut roots: Vec<(PathBuf, &'static str)> = vec![];
     if let Some(common_start) = env::var_os("ProgramData") {
         let mut path = PathBuf::from(common_start);
@@ -172,6 +181,7 @@ fn build_catalog() -> Vec<AppEntry> {
     collect_start_apps_entries(&mut found);
 
     found.into_values().collect()
+    }
 }
 
 fn collect_root_entries(root: &Path, source_name: &str, found: &mut BTreeMap<String, AppEntry>) {
@@ -312,6 +322,150 @@ fn collect_start_apps_entries(found: &mut BTreeMap<String, AppEntry>) {
             });
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn collect_linux_desktop_entries(found: &mut BTreeMap<String, AppEntry>) {
+    let mut roots: Vec<PathBuf> = vec![PathBuf::from("/usr/share/applications")];
+    if let Some(home) = env::var_os("HOME") {
+        roots.push(
+            PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("applications"),
+        );
+    }
+    if let Some(data_home) = env::var_os("XDG_DATA_HOME") {
+        roots.push(PathBuf::from(data_home).join("applications"));
+    }
+
+    for root in roots.into_iter().filter(|path| path.exists()) {
+        for entry in WalkDir::new(root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let is_desktop = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.eq_ignore_ascii_case("desktop"));
+            if !is_desktop {
+                continue;
+            }
+
+            let Some((name, exec, subtitle)) = parse_linux_desktop_entry(path) else {
+                continue;
+            };
+
+            let key = name.to_ascii_lowercase();
+            found.entry(key).or_insert_with(|| {
+                let alias = build_alias(&name);
+                let subtitle_normalized = normalize(&subtitle);
+
+                AppEntry {
+                    name: name.clone(),
+                    name_normalized: normalize(&name),
+                    alias_normalized: normalize(&alias),
+                    subtitle,
+                    subtitle_normalized,
+                    path: exec.clone(),
+                    path_normalized: normalize(&exec),
+                }
+            });
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_desktop_entry(path: &Path) -> Option<(String, String, String)> {
+    let text = std::fs::read_to_string(path).ok()?;
+
+    let mut in_desktop_entry = false;
+    let mut name: Option<String> = None;
+    let mut exec: Option<String> = None;
+    let mut no_display = false;
+    let mut hidden = false;
+    let mut entry_type: Option<String> = None;
+
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if line.starts_with('[') && line.ends_with(']') {
+            in_desktop_entry = line.eq_ignore_ascii_case("[Desktop Entry]");
+            continue;
+        }
+
+        if !in_desktop_entry {
+            continue;
+        }
+
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+
+        let key = key.trim();
+        let value = value.trim();
+        if key.eq_ignore_ascii_case("Name") {
+            if !value.is_empty() {
+                name = Some(value.to_string());
+            }
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("Exec") {
+            let parsed_exec = normalize_linux_exec(value);
+            if !parsed_exec.is_empty() {
+                exec = Some(parsed_exec);
+            }
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("Type") {
+            entry_type = Some(value.to_string());
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("NoDisplay") {
+            no_display = value.eq_ignore_ascii_case("true") || value == "1";
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("Hidden") {
+            hidden = value.eq_ignore_ascii_case("true") || value == "1";
+        }
+    }
+
+    if hidden || no_display {
+        return None;
+    }
+    if !entry_type
+        .unwrap_or_else(|| "Application".to_string())
+        .eq_ignore_ascii_case("Application")
+    {
+        return None;
+    }
+
+    let name = name?;
+    let exec = exec?;
+    let subtitle = path.to_string_lossy().to_string();
+    Some((name, exec, subtitle))
+}
+
+#[cfg(target_os = "linux")]
+fn normalize_linux_exec(raw_exec: &str) -> String {
+    let mut cleaned = raw_exec.to_string();
+    for token in ["%f", "%F", "%u", "%U", "%i", "%c", "%k", "%d", "%D", "%n", "%N", "%v", "%m"] {
+        cleaned = cleaned.replace(token, "");
+    }
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn build_alias(name: &str) -> String {

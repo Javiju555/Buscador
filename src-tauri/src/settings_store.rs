@@ -18,8 +18,9 @@ pub fn load_settings() -> LauncherSettings {
     };
 
     if let Ok(roots) = std::env::var("BUSCADOR_ROOTS") {
+        let separator = if cfg!(target_os = "windows") { ';' } else { ':' };
         let parsed: Vec<String> = roots
-            .split(';')
+            .split(separator)
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
@@ -46,6 +47,16 @@ pub fn load_settings() -> LauncherSettings {
     #[cfg(target_os = "windows")]
     {
         let autostart_enabled = is_windows_autostart_enabled();
+        if autostart_enabled {
+            loaded.start_with_windows = true;
+        } else if !settings_file_exists {
+            loaded.start_with_windows = true;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let autostart_enabled = is_linux_autostart_enabled();
         if autostart_enabled {
             loaded.start_with_windows = true;
         } else if !settings_file_exists {
@@ -119,4 +130,25 @@ fn is_windows_autostart_enabled() -> bool {
         Ok(value) => !value.trim().is_empty(),
         Err(_) => false,
     }
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_autostart_enabled() -> bool {
+    linux_autostart_entry_path().exists()
+}
+
+#[cfg(target_os = "linux")]
+fn linux_autostart_entry_path() -> PathBuf {
+    if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(config_home).join("autostart").join("buscador.desktop");
+    }
+
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home)
+            .join(".config")
+            .join("autostart")
+            .join("buscador.desktop");
+    }
+
+    PathBuf::from("buscador.desktop")
 }

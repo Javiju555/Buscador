@@ -90,7 +90,7 @@ impl SearchService {
         }
 
         let env_alias = if mode == SearchMode::Mixed || mode == SearchMode::File {
-            build_windows_env_alias_result(&query)
+            build_special_path_alias_result(&query)
         } else {
             None
         };
@@ -216,16 +216,16 @@ fn build_web_results(
     results
 }
 
-fn build_windows_env_alias_result(query: &str) -> Option<SearchResult> {
-    #[cfg(not(target_os = "windows"))]
+fn build_special_path_alias_result(query: &str) -> Option<SearchResult> {
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         let _ = query;
         return None;
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        let (title, resolved_path) = resolve_windows_special_path(query)?;
+        let (title, resolved_path) = resolve_special_path(query)?;
         let normalized = resolved_path.trim();
         let path = Path::new(normalized);
         if normalized.is_empty() || !path.exists() {
@@ -240,6 +240,22 @@ fn build_windows_env_alias_result(query: &str) -> Option<SearchResult> {
             score: 1500,
         })
     }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn resolve_special_path(query: &str) -> Option<(String, String)> {
+    #[cfg(target_os = "windows")]
+    {
+        return resolve_windows_special_path(query);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return resolve_linux_special_path(query);
+    }
+
+    #[allow(unreachable_code)]
+    None
 }
 
 #[cfg(target_os = "windows")]
@@ -286,6 +302,37 @@ fn resolve_windows_special_path(query: &str) -> Option<(String, String)> {
                     .to_string(),
             )
         }),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_linux_special_path(query: &str) -> Option<(String, String)> {
+    let alias = query.trim().to_ascii_lowercase();
+    let home = std::env::var("HOME").ok();
+
+    match alias.as_str() {
+        "home" | "~" => home.map(|path| ("home".to_string(), path)),
+        "desktop" => home.map(|base| ("desktop".to_string(), Path::new(&base).join("Desktop").to_string_lossy().to_string())),
+        "documents" | "docs" => home.map(|base| ("documents".to_string(), Path::new(&base).join("Documents").to_string_lossy().to_string())),
+        "downloads" => home.map(|base| ("downloads".to_string(), Path::new(&base).join("Downloads").to_string_lossy().to_string())),
+        "config" => std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .or_else(|| home.as_ref().map(|base| Path::new(base).join(".config").to_string_lossy().to_string()))
+            .map(|path| ("config".to_string(), path)),
+        "data" => std::env::var("XDG_DATA_HOME")
+            .ok()
+            .or_else(|| home.as_ref().map(|base| Path::new(base).join(".local").join("share").to_string_lossy().to_string()))
+            .map(|path| ("data".to_string(), path)),
+        "cache" => std::env::var("XDG_CACHE_HOME")
+            .ok()
+            .or_else(|| home.as_ref().map(|base| Path::new(base).join(".cache").to_string_lossy().to_string()))
+            .map(|path| ("cache".to_string(), path)),
+        "temp" | "tmp" => std::env::var("TMPDIR")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| Some("/tmp".to_string()))
+            .map(|path| ("temp".to_string(), path)),
         _ => None,
     }
 }

@@ -1,6 +1,6 @@
 # Buscador Launcher (Tauri)
 
-Launcher estilo Spotlight para Windows: `Ctrl+Space`, UI tipo pill con dropdown flotante, glassmorphism y tema automatico light/dark segun tema del sistema.
+Launcher estilo Spotlight para Windows/Linux: `Ctrl+Space`, UI tipo pill con dropdown flotante, glassmorphism y tema automatico light/dark segun tema del sistema.
 
 ## Stack
 
@@ -23,7 +23,7 @@ No necesitas implementar todo en Rust: la UI y experiencia van en web, y Rust qu
 
 ## Requisitos
 
-- Windows 10/11
+- Windows 10/11 o Linux moderno (GNOME/KDE/Xfce con `xdg-open`)
 - Node.js 20+
 - Rust stable + cargo
 - Tauri CLI (`cargo tauri --version`)
@@ -42,8 +42,8 @@ cargo tauri build
 
 Artefactos release en Windows:
 
-- `src-tauri/target/release/bundle/nsis/Buscador_0.1.1_x64-setup.exe` (instalador recomendado)
-- `src-tauri/target/release/bundle/msi/Buscador_0.1.1_x64_en-US.msi`
+- `src-tauri/target/release/bundle/nsis/Buscador_0.1.3_x64-setup.exe` (instalador recomendado)
+- `src-tauri/target/release/bundle/msi/Buscador_0.1.3_x64_en-US.msi`
 
 ## Build portable (ZIP)
 
@@ -56,12 +56,12 @@ cargo tauri build
 2. Empaqueta portable:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\make-portable.ps1 -Version 0.1.1
+powershell -ExecutionPolicy Bypass -File .\scripts\make-portable.ps1 -Version 0.1.3
 ```
 
 Salida:
 
-- `dist/portable/Buscador_0.1.1_x64_portable.zip`
+- `dist/portable/Buscador_0.1.3_x64_portable.zip`
 
 La edición portable incluye `Buscador.exe` y no modifica el inicio automático por sí sola.
 
@@ -117,6 +117,8 @@ $env:BUSCADOR_MAX_FILES="12000"
 cargo tauri dev --no-watch
 ```
 
+En Linux, `BUSCADOR_ROOTS` usa `:` como separador.
+
 ## Busqueda web (opcional, sin historial)
 
 El modo web usa el prefijo `w` y mantiene UX minimalista:
@@ -153,6 +155,17 @@ Nota para open source: documenta que la API key es opcional y no debe subirse al
 - `/texto`: solo archivos
 - `=expresion`: solo calculadora
 - `w texto`: resultados web (top + abrir busqueda)
+
+## Alias de rutas rápidas
+
+Windows:
+
+- Variables `%...%` (ej: `%appdata%`, `%localappdata%`, `%temp%`)
+- Alias directos: `appdata`, `localappdata`, `temp`, `tmp`, `startup`, `commonstartup`, `userprofile`, `programdata`, `windir`
+
+Linux:
+
+- Alias directos: `home`, `~`, `desktop`, `documents`, `downloads`, `config`, `data`, `cache`, `temp`, `tmp`
 
 ## Nota sobre version anterior
 

@@ -240,6 +240,8 @@ fn resolve_roots(roots: &[String]) -> Vec<PathBuf> {
 
 fn default_roots() -> Vec<PathBuf> {
     let mut roots = Vec::<PathBuf>::new();
+
+    #[cfg(target_os = "windows")]
     if let Some(profile) = std::env::var_os("USERPROFILE") {
         let profile = PathBuf::from(profile);
         for folder in ["Desktop", "Documents", "Downloads"] {
@@ -249,6 +251,18 @@ fn default_roots() -> Vec<PathBuf> {
             }
         }
     }
+
+    #[cfg(target_os = "linux")]
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        for folder in ["Desktop", "Documents", "Downloads", "Projects"] {
+            let candidate = home.join(folder);
+            if candidate.exists() {
+                roots.push(candidate);
+            }
+        }
+    }
+
     roots
 }
 

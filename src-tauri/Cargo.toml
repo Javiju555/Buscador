@@ -1,6 +1,6 @@
 [package]
 name = "buscador_tauri"
-version = "0.1.2"
+version = "0.1.3"
 description = "Buscador launcher style Spotlight"
 authors = ["Buscador"]
 license = ""
