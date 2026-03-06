@@ -34,6 +34,12 @@ No necesitas implementar todo en Rust: la UI y experiencia van en web, y Rust qu
 cargo tauri dev --no-watch
 ```
 
+## Guía Linux (Zorin OS)
+
+Si vas a usar Buscador en Zorin OS, revisa la guía persistente:
+
+- `docs/ZORIN_OS_SETUP.md`
+
 ## Build
 
 ```powershell
