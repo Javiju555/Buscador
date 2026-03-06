@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::path::Path;
 
 use crate::app_catalog::AppCatalog;
 use crate::calculator::evaluate;
@@ -88,6 +89,12 @@ impl SearchService {
             };
         }
 
+        let env_alias = if mode == SearchMode::Mixed || mode == SearchMode::File {
+            build_windows_env_alias_result(&query)
+        } else {
+            None
+        };
+
         let calculation = if mode == SearchMode::Mixed && looks_like_math(&query) {
             build_calculation(&query, false).into_iter().next()
         } else {
@@ -109,6 +116,10 @@ impl SearchService {
         }
         if mode == SearchMode::File || (mode == SearchMode::Mixed && include_files_in_mixed) {
             bag.extend(self.file_catalog.search(&query, limit));
+        }
+
+        if let Some(alias_result) = env_alias {
+            bag.push(alias_result);
         }
 
         bag.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.title.cmp(&b.title)));
@@ -203,6 +214,108 @@ fn build_web_results(
 
     results.truncate(total_rows);
     results
+}
+
+fn build_windows_env_alias_result(query: &str) -> Option<SearchResult> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = query;
+        return None;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let (title, resolved_path) = resolve_windows_special_path(query)?;
+        let normalized = resolved_path.trim();
+        let path = Path::new(normalized);
+        if normalized.is_empty() || !path.exists() {
+            return None;
+        }
+
+        Some(SearchResult {
+            kind: SearchResultKind::File,
+            title,
+            subtitle: "Alias/variable especial de Windows (Enter para abrir carpeta)".to_string(),
+            primary_value: normalized.to_string(),
+            score: 1500,
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_windows_special_path(query: &str) -> Option<(String, String)> {
+    if let Some(token) = parse_windows_env_token(query) {
+        let resolved = std::env::var(&token).ok()?;
+        return Some((format!("%{}%", token.to_ascii_lowercase()), resolved));
+    }
+
+    let alias = query.trim().to_ascii_lowercase();
+    match alias.as_str() {
+        "appdata" => resolve_from_env_alias("APPDATA", "appdata"),
+        "localappdata" => resolve_from_env_alias("LOCALAPPDATA", "localappdata"),
+        "temp" | "tmp" => std::env::var("TEMP")
+            .ok()
+            .or_else(|| std::env::var("TMP").ok())
+            .map(|path| ("temp".to_string(), path)),
+        "userprofile" | "home" => resolve_from_env_alias("USERPROFILE", "userprofile"),
+        "programdata" => resolve_from_env_alias("PROGRAMDATA", "programdata"),
+        "windir" | "windows" => resolve_from_env_alias("WINDIR", "windir"),
+        "startup" => std::env::var("APPDATA").ok().map(|base| {
+            (
+                "startup".to_string(),
+                Path::new(&base)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Start Menu")
+                    .join("Programs")
+                    .join("Startup")
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        }),
+        "commonstartup" => std::env::var("PROGRAMDATA").ok().map(|base| {
+            (
+                "commonstartup".to_string(),
+                Path::new(&base)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Start Menu")
+                    .join("Programs")
+                    .join("StartUp")
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_from_env_alias(env_name: &str, alias_name: &str) -> Option<(String, String)> {
+    std::env::var(env_name)
+        .ok()
+        .map(|path| (alias_name.to_string(), path))
+}
+
+fn parse_windows_env_token(query: &str) -> Option<String> {
+    let trimmed = query.trim();
+    if trimmed.len() < 3 || !trimmed.starts_with('%') || !trimmed.ends_with('%') {
+        return None;
+    }
+
+    let inner = &trimmed[1..trimmed.len() - 1];
+    if inner.is_empty() {
+        return None;
+    }
+
+    if !inner
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return None;
+    }
+
+    Some(inner.to_ascii_uppercase())
 }
 
 fn encode_query_component(text: &str) -> String {
