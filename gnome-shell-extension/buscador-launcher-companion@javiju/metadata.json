@@ -1,0 +1,9 @@
+{
+  "uuid": "buscador-launcher-companion@javiju",
+  "name": "Buscador Launcher Companion",
+  "description": "Hides the Buscador Tauri launcher from Dash to Dock and the window switcher on GNOME Shell 49.",
+  "shell-version": [
+    "49"
+  ],
+  "version": 1
+}

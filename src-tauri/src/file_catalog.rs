@@ -319,7 +319,7 @@ fn should_keep_directory(path: &Path, skip_dir_names: &HashSet<String>) -> bool 
         return false;
     }
 
-    let Ok(metadata) = std::fs::metadata(path) else {
+    let Ok(_metadata) = std::fs::metadata(path) else {
         return false;
     };
     #[cfg(target_os = "windows")]
@@ -328,7 +328,7 @@ fn should_keep_directory(path: &Path, skip_dir_names: &HashSet<String>) -> bool 
         const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
         const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        let attributes = metadata.file_attributes();
+        let attributes = _metadata.file_attributes();
         if attributes
             & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_REPARSE_POINT)
             != 0

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
 use std::sync::RwLock;
 
 #[cfg(target_os = "windows")]

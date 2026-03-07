@@ -20,8 +20,11 @@ use anyhow::{bail, Context, Result};
 use arboard::Clipboard;
 use models::{ExecutePayload, LauncherSettings, SearchResponse, SearchResultKind};
 use search_service::SearchService;
-use tauri::{Emitter, LogicalSize, Manager, PhysicalPosition, Position, Size, WebviewWindow};
+use tauri::{Emitter, LogicalSize, Manager, Size, WebviewWindow};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+#[cfg(target_os = "linux")]
+pub mod portal_shortcut;
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const KEEPALIVE_WINDOW_LABEL: &str = "__buscador_keepalive";
@@ -429,6 +432,17 @@ fn create_main_window(app: &tauri::AppHandle) -> Result<WebviewWindow> {
         .build()
         .context("No se pudo crear la ventana principal")?;
 
+    #[cfg(target_os = "linux")]
+    {
+        // For Dash to Dock (GNOME) and Wayland, PopupMenu is the most reliable hint to avoid the dock
+        if let Ok(gtk_window) = window.gtk_window() {
+            use gtk::prelude::GtkWindowExt;
+            gtk_window.set_type_hint(gtk::gdk::WindowTypeHint::PopupMenu);
+            gtk_window.set_skip_taskbar_hint(true);
+            gtk_window.set_skip_pager_hint(true);
+        }
+    }
+
     attach_main_window_handlers(&window, app);
     Ok(window)
 }
@@ -683,16 +697,24 @@ fn register_hotkey(app: &tauri::AppHandle) {
     let manager = app.global_shortcut();
     let primary = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
     if manager.register(primary).is_ok() {
-        log::info!("Hotkey activa: Ctrl+Space");
+        log::info!("Hotkey activa: Ctrl+Space (Tauri default)");
         return;
     }
 
     let fallback = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
     if manager.register(fallback).is_ok() {
-        log::info!("Hotkey activa: Ctrl+Shift+Space");
+        log::info!("Hotkey activa: Ctrl+Shift+Space (Tauri default)");
     } else {
-        log::error!("No se pudo registrar hotkey global");
+        log::error!("No se pudo registrar hotkey global nativa");
     }
+}
+
+#[cfg(target_os = "linux")]
+fn register_wayland_portal_hotkey(app: &tauri::AppHandle) {
+    let app_handle = app.clone();
+    portal_shortcut::spawn_portal_shortcut_listener(move || {
+        let _ = toggle_main_window(&app_handle);
+    });
 }
 
 #[cfg(target_os = "windows")]
@@ -998,6 +1020,26 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
+        .register_uri_scheme_protocol("icon", move |_app_handle, request| {
+            let path_str = request.uri().path().trim_start_matches('/');
+            let decoded = urlencoding::decode(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
+            
+            let path = std::path::PathBuf::from(decoded.as_ref());
+            if path.exists() {
+                if let Ok(bytes) = std::fs::read(&path) {
+                    return tauri::http::Response::builder()
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Content-Type", icon::mime_type_for_path(&path))
+                        .body(bytes)
+                        .unwrap();
+                }
+            }
+            
+            tauri::http::Response::builder()
+                .status(404)
+                .body(Vec::new())
+                .unwrap()
+        })
         .setup(move |app| {
             let app_handle = app.handle().clone();
             maybe_seed_autostart(&startup_settings_for_setup);
@@ -1013,7 +1055,13 @@ pub fn run() {
                 }
             }
 
+            // Register standard global shortcut (X11 / Windows / Mac)
             register_hotkey(&app_handle);
+            
+            // Register Wayland specific portal shortcut for GNOME
+            #[cfg(target_os = "linux")]
+            register_wayland_portal_hotkey(&app_handle);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

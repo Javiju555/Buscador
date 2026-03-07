@@ -834,7 +834,15 @@ function requestIcon(path: string): void {
 }
 
 function iconPathFor(result: SearchResult): string | null {
-  if (result.kind === "app" || result.kind === "command" || result.kind === "file") {
+  if (result.kind === "app") {
+    const desktopEntryPath = result.subtitle.trim();
+    if (desktopEntryPath.toLowerCase().endsWith(".desktop")) {
+      return desktopEntryPath;
+    }
+    return result.primaryValue;
+  }
+
+  if (result.kind === "command" || result.kind === "file") {
     return result.primaryValue;
   }
   return null;
