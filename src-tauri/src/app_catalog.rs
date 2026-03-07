@@ -358,10 +358,11 @@ fn collect_linux_desktop_entries(found: &mut BTreeMap<String, AppEntry>) {
                 continue;
             }
 
-            let Some((name, exec, subtitle)) = parse_linux_desktop_entry(path) else {
+            let Some((name, _exec, subtitle)) = parse_linux_desktop_entry(path) else {
                 continue;
             };
 
+            let desktop_path = path.to_string_lossy().to_string();
             let key = name.to_ascii_lowercase();
             found.entry(key).or_insert_with(|| {
                 let alias = build_alias(&name);
@@ -373,8 +374,8 @@ fn collect_linux_desktop_entries(found: &mut BTreeMap<String, AppEntry>) {
                     alias_normalized: normalize(&alias),
                     subtitle,
                     subtitle_normalized,
-                    path: exec.clone(),
-                    path_normalized: normalize(&exec),
+                    path: desktop_path.clone(),
+                    path_normalized: normalize(&desktop_path),
                 }
             });
         }

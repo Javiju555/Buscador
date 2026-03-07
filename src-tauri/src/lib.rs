@@ -4,6 +4,8 @@ mod command_catalog;
 mod file_catalog;
 mod icon;
 mod models;
+#[cfg(target_os = "linux")]
+mod portal_shortcut;
 mod search_service;
 mod settings_store;
 mod text_matcher;
@@ -219,6 +221,14 @@ fn execute_app(target: &str) -> Result<()> {
         return open_path(trimmed);
     }
 
+    // En Linux, lanzar .desktop files parseando su Exec
+    #[cfg(target_os = "linux")]
+    {
+        if trimmed.ends_with(".desktop") {
+            return launch_desktop_entry(trimmed);
+        }
+    }
+
     if PathBuf::from(trimmed).exists() {
         return open_path(trimmed);
     }
@@ -228,6 +238,80 @@ fn execute_app(target: &str) -> Result<()> {
         .split_first()
         .ok_or_else(|| anyhow::anyhow!("No se pudo resolver comando de app"))?;
     run_command(command, args)
+}
+
+#[cfg(target_os = "linux")]
+fn launch_desktop_entry(desktop_path: &str) -> Result<()> {
+    let text = std::fs::read_to_string(desktop_path)
+        .context("No se pudo leer el archivo .desktop")?;
+
+    let mut in_desktop_entry = false;
+    let mut exec_line: Option<String> = None;
+    let mut terminal = false;
+
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            in_desktop_entry = line.eq_ignore_ascii_case("[Desktop Entry]");
+            continue;
+        }
+        if !in_desktop_entry {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim();
+            let value = value.trim();
+            if key.eq_ignore_ascii_case("Exec") && !value.is_empty() {
+                exec_line = Some(value.to_string());
+            }
+            if key.eq_ignore_ascii_case("Terminal") {
+                terminal = value.eq_ignore_ascii_case("true") || value == "1";
+            }
+        }
+    }
+
+    let raw_exec = exec_line.ok_or_else(|| anyhow::anyhow!("No se encontro Exec en {desktop_path}"))?;
+
+    // Limpiar tokens especiales de desktop entry (%f, %u, etc.)
+    let mut cleaned = raw_exec.to_string();
+    for token in ["%f", "%F", "%u", "%U", "%i", "%c", "%k", "%d", "%D", "%n", "%N", "%v", "%m"] {
+        cleaned = cleaned.replace(token, "");
+    }
+    let cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if cleaned.is_empty() {
+        bail!("Exec vacio en {desktop_path}");
+    }
+
+    let parts = shlex::split(&cleaned).unwrap_or_else(|| vec![cleaned.clone()]);
+    let (command, args) = parts
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("No se pudo parsear Exec de {desktop_path}"))?;
+
+    if terminal {
+        // Para apps de terminal, intentar con el emulador por defecto
+        Command::new("xdg-terminal-exec")
+            .arg("-e")
+            .arg(command)
+            .args(args)
+            .spawn()
+            .or_else(|_| {
+                Command::new(command)
+                    .args(args)
+                    .spawn()
+            })
+            .context("No se pudo lanzar la app de terminal")?;
+    } else {
+        Command::new(command)
+            .args(args)
+            .spawn()
+            .context(format!("No se pudo lanzar {command}"))?;
+    }
+
+    Ok(())
 }
 
 fn open_path(path: &str) -> Result<()> {
@@ -428,6 +512,17 @@ fn create_main_window(app: &tauri::AppHandle) -> Result<WebviewWindow> {
     let window = builder
         .build()
         .context("No se pudo crear la ventana principal")?;
+
+    // En Linux/Wayland: evitar que aparezca en el dock de GNOME
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(gtk_window) = window.gtk_window() {
+            use gtk::prelude::GtkWindowExt;
+            gtk_window.set_type_hint(gdk::WindowTypeHint::PopupMenu);
+            gtk_window.set_skip_taskbar_hint(true);
+            gtk_window.set_skip_pager_hint(true);
+        }
+    }
 
     attach_main_window_handlers(&window, app);
     Ok(window)
@@ -680,6 +775,18 @@ fn center_on_active_monitor(window: &WebviewWindow) -> Result<()> {
 }
 
 fn register_hotkey(app: &tauri::AppHandle) {
+    // En Wayland, el plugin nativo de global shortcut registra sin error
+    // pero el handler nunca se dispara. Detectamos Wayland y vamos
+    // directo al portal.
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            log::info!("Detectado Wayland: registrando hotkey via xdg-desktop-portal");
+            portal_shortcut::spawn_portal_shortcut_listener(app.clone());
+            return;
+        }
+    }
+
     let manager = app.global_shortcut();
     let primary = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
     if manager.register(primary).is_ok() {
@@ -690,10 +797,23 @@ fn register_hotkey(app: &tauri::AppHandle) {
     let fallback = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
     if manager.register(fallback).is_ok() {
         log::info!("Hotkey activa: Ctrl+Shift+Space");
-    } else {
+        return;
+    }
+
+    // Fallback para Linux X11 donde ambos registros nativos fallaron
+    #[cfg(target_os = "linux")]
+    {
+        log::info!("Registrando hotkey via xdg-desktop-portal (fallback)");
+        portal_shortcut::spawn_portal_shortcut_listener(app.clone());
+        return;
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
         log::error!("No se pudo registrar hotkey global");
     }
 }
+
 
 #[cfg(target_os = "windows")]
 fn detect_windows_theme() -> Option<&'static str> {
