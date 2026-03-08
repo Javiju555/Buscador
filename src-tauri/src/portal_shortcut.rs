@@ -15,19 +15,16 @@ where
     std::thread::Builder::new()
         .name("portal-shortcut".into())
         .spawn(move || {
-            let rt: tokio::runtime::Runtime =
-                match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(rt) => rt,
-                    Err(error) => {
-                        log::error!(
-                            "No se pudo crear runtime tokio para portal shortcuts: {error}"
-                        );
-                        return;
-                    }
-                };
+            let rt: tokio::runtime::Runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(error) => {
+                    log::error!("No se pudo crear runtime tokio para portal shortcuts: {error}");
+                    return;
+                }
+            };
 
             rt.block_on(async move {
                 if let Err(error) = run_portal_listener(on_activate).await {
@@ -38,7 +35,9 @@ where
         .ok();
 }
 
-async fn run_portal_listener(on_activate: Arc<dyn Fn() + Send + Sync + 'static>) -> ashpd::Result<()> {
+async fn run_portal_listener(
+    on_activate: Arc<dyn Fn() + Send + Sync + 'static>,
+) -> ashpd::Result<()> {
     let portal: GlobalShortcuts = GlobalShortcuts::new().await?;
     log::info!(
         "Portal GlobalShortcuts conectado (version {})",
@@ -54,8 +53,8 @@ async fn run_portal_listener(on_activate: Arc<dyn Fn() + Send + Sync + 'static>)
         .await?;
     log::info!("Sesion de global shortcuts creada");
 
-    let shortcut = NewShortcut::new(SHORTCUT_ID, "Toggle Buscador launcher")
-        .preferred_trigger("CTRL+space");
+    let shortcut =
+        NewShortcut::new(SHORTCUT_ID, "Toggle Buscador launcher").preferred_trigger("CTRL+space");
 
     let request = portal
         .bind_shortcuts(&session, &[shortcut], None, BindShortcutsOptions::default())

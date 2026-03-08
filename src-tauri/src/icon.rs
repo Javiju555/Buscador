@@ -314,7 +314,11 @@ fn rank_icon_path(path: &Path) -> i32 {
     };
 
     let path_text = path.to_string_lossy().to_ascii_lowercase();
-    let symbolic_penalty = if path_text.contains("symbolic") { -90 } else { 0 };
+    let symbolic_penalty = if path_text.contains("symbolic") {
+        -90
+    } else {
+        0
+    };
     let app_bonus = if path_text.contains("/apps/") { 35 } else { 0 };
     let size_score = match icon_size_hint(path) {
         Some(size) => 220 - (size as i32 - 96).abs().min(180),

@@ -119,7 +119,8 @@ impl Parser {
             return Ok(value);
         }
 
-        if matches!(self.current(), Some(character) if character.is_ascii_alphabetic() || character == '_') {
+        if matches!(self.current(), Some(character) if character.is_ascii_alphabetic() || character == '_')
+        {
             return self.parse_identifier_or_function();
         }
 
@@ -207,8 +208,16 @@ impl Parser {
             "rad" => one_arg(name, args).map(f64::to_radians),
             "deg" => one_arg(name, args).map(f64::to_degrees),
             "pow" => two_args(name, args).map(|(a, b)| a.powf(b)),
-            "min" => min_args(name, args).map(|slice| slice.iter().fold(f64::INFINITY, |acc, &value| acc.min(value))),
-            "max" => min_args(name, args).map(|slice| slice.iter().fold(f64::NEG_INFINITY, |acc, &value| acc.max(value))),
+            "min" => min_args(name, args).map(|slice| {
+                slice
+                    .iter()
+                    .fold(f64::INFINITY, |acc, &value| acc.min(value))
+            }),
+            "max" => min_args(name, args).map(|slice| {
+                slice
+                    .iter()
+                    .fold(f64::NEG_INFINITY, |acc, &value| acc.max(value))
+            }),
             "clamp" => {
                 let (value, min, max) = three_args(name, args)?;
                 Ok(value.clamp(min, max))

@@ -92,8 +92,8 @@ La app crea/elimina el autostart al guardar el ajuste "Iniciar con Windows" (usa
 
 Ruta esperada de autostart:
 
-- `$XDG_CONFIG_HOME/autostart/buscador.desktop`
-- o `~/.config/autostart/buscador.desktop`
+- `$XDG_CONFIG_HOME/autostart/com.buscador.launcher.desktop`
+- o `~/.config/autostart/com.buscador.launcher.desktop`
 
 ## 8) Troubleshooting rápido
 

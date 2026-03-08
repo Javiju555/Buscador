@@ -10,6 +10,7 @@
     "beforeBuildCommand": "cd ../frontend && bun run build"
   },
   "app": {
+    "enableGTKAppId": true,
     "windows": [
       {
         "title": "Buscador",

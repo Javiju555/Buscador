@@ -135,52 +135,52 @@ fn build_catalog() -> Vec<AppEntry> {
 
     #[cfg(not(target_os = "linux"))]
     {
-    let mut roots: Vec<(PathBuf, &'static str)> = vec![];
-    if let Some(common_start) = env::var_os("ProgramData") {
-        let mut path = PathBuf::from(common_start);
-        path.push("Microsoft\\Windows\\Start Menu\\Programs");
-        if path.exists() {
-            roots.push((path, "Start Menu"));
-        }
-    }
-
-    if let Some(user_profile) = env::var_os("APPDATA") {
-        let mut path = PathBuf::from(&user_profile);
-        path.push("Microsoft\\Windows\\Start Menu\\Programs");
-        if path.exists() {
-            roots.push((path, "Start Menu"));
+        let mut roots: Vec<(PathBuf, &'static str)> = vec![];
+        if let Some(common_start) = env::var_os("ProgramData") {
+            let mut path = PathBuf::from(common_start);
+            path.push("Microsoft\\Windows\\Start Menu\\Programs");
+            if path.exists() {
+                roots.push((path, "Start Menu"));
+            }
         }
 
-        let mut taskbar_pins = PathBuf::from(&user_profile);
-        taskbar_pins.push("Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar");
-        if taskbar_pins.exists() {
-            roots.push((taskbar_pins, "Barra de tareas"));
+        if let Some(user_profile) = env::var_os("APPDATA") {
+            let mut path = PathBuf::from(&user_profile);
+            path.push("Microsoft\\Windows\\Start Menu\\Programs");
+            if path.exists() {
+                roots.push((path, "Start Menu"));
+            }
+
+            let mut taskbar_pins = PathBuf::from(&user_profile);
+            taskbar_pins.push("Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar");
+            if taskbar_pins.exists() {
+                roots.push((taskbar_pins, "Barra de tareas"));
+            }
         }
-    }
 
-    if let Some(home) = env::var_os("USERPROFILE") {
-        let mut desktop = PathBuf::from(home);
-        desktop.push("Desktop");
-        if desktop.exists() {
-            roots.push((desktop, "Escritorio"));
+        if let Some(home) = env::var_os("USERPROFILE") {
+            let mut desktop = PathBuf::from(home);
+            desktop.push("Desktop");
+            if desktop.exists() {
+                roots.push((desktop, "Escritorio"));
+            }
         }
-    }
 
-    if let Some(public_home) = env::var_os("PUBLIC") {
-        let mut desktop = PathBuf::from(public_home);
-        desktop.push("Desktop");
-        if desktop.exists() {
-            roots.push((desktop, "Escritorio publico"));
+        if let Some(public_home) = env::var_os("PUBLIC") {
+            let mut desktop = PathBuf::from(public_home);
+            desktop.push("Desktop");
+            if desktop.exists() {
+                roots.push((desktop, "Escritorio publico"));
+            }
         }
-    }
 
-    let mut found = BTreeMap::<String, AppEntry>::new();
-    for (root, source_name) in roots {
-        collect_root_entries(&root, source_name, &mut found);
-    }
-    collect_start_apps_entries(&mut found);
+        let mut found = BTreeMap::<String, AppEntry>::new();
+        for (root, source_name) in roots {
+            collect_root_entries(&root, source_name, &mut found);
+        }
+        collect_start_apps_entries(&mut found);
 
-    found.into_values().collect()
+        found.into_values().collect()
     }
 }
 
@@ -250,19 +250,16 @@ fn collect_start_apps_entries(found: &mut BTreeMap<String, AppEntry>) {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
         let mut command = Command::new("powershell.exe");
-        command
-            .creation_flags(CREATE_NO_WINDOW)
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                "Get-StartApps | Sort-Object Name | ConvertTo-Json -Compress",
-            ]);
+        command.creation_flags(CREATE_NO_WINDOW).args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "Get-StartApps | Sort-Object Name | ConvertTo-Json -Compress",
+        ]);
 
-        let output = match command.output()
-        {
+        let output = match command.output() {
             Ok(value) if value.status.success() => value,
             _ => return,
         };
@@ -462,7 +459,9 @@ fn parse_linux_desktop_entry(path: &Path) -> Option<(String, String, String)> {
 #[cfg(target_os = "linux")]
 fn normalize_linux_exec(raw_exec: &str) -> String {
     let mut cleaned = raw_exec.to_string();
-    for token in ["%f", "%F", "%u", "%U", "%i", "%c", "%k", "%d", "%D", "%n", "%N", "%v", "%m"] {
+    for token in [
+        "%f", "%F", "%u", "%U", "%i", "%c", "%k", "%d", "%D", "%n", "%N", "%v", "%m",
+    ] {
         cleaned = cleaned.replace(token, "");
     }
     cleaned.split_whitespace().collect::<Vec<_>>().join(" ")

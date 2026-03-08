@@ -28,7 +28,7 @@ pub mod portal_shortcut;
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const KEEPALIVE_WINDOW_LABEL: &str = "__buscador_keepalive";
-const AGGRESSIVE_IDLE_MODE: bool = true;
+const AGGRESSIVE_IDLE_MODE: bool = false;
 const FOCUS_HIDE_DEBOUNCE_MS: u64 = 140;
 const FOCUS_RETRY_DELAYS_MS: [u64; 3] = [20, 75, 140];
 const FOCUS_GUARD_POLL_MS: u64 = 120;
@@ -41,6 +41,8 @@ struct AppState {
     search_service: Arc<SearchService>,
     icon_cache: Mutex<HashMap<String, Option<String>>>,
     window_booting: AtomicBool,
+    show_main_window_when_ready: AtomicBool,
+    main_window_crashed: AtomicBool,
     last_show_millis: AtomicU64,
     focused_since_show: AtomicBool,
 }
@@ -78,8 +80,7 @@ fn save_settings(
     state: tauri::State<'_, AppState>,
 ) -> Result<LauncherSettings, String> {
     let normalized = state.search_service.update_launcher_settings(settings);
-    apply_autostart_setting(normalized.start_with_windows)
-        .map_err(|error| error.to_string())?;
+    apply_autostart_setting(normalized.start_with_windows).map_err(|error| error.to_string())?;
     settings_store::save_settings(&normalized)?;
     Ok(normalized)
 }
@@ -412,6 +413,124 @@ fn attach_main_window_handlers(window: &WebviewWindow, app: &tauri::AppHandle) {
     });
 }
 
+#[cfg(target_os = "linux")]
+fn attach_main_window_crash_recovery(window: &WebviewWindow, app: &tauri::AppHandle) {
+    let tracked_window = window.clone();
+    let app_handle = app.clone();
+    let window_label = tracked_window.label().to_string();
+
+    if let Err(error) = window.with_webview(move |webview| {
+        use webkit2gtk::WebViewExt;
+
+        let tracked_window = tracked_window.clone();
+        let app_handle = app_handle.clone();
+        let window_label = window_label.clone();
+        webview
+            .inner()
+            .connect_web_process_terminated(move |_, reason| {
+                let app_handle = app_handle.clone();
+                let tracked_window = tracked_window.clone();
+                let window_label = window_label.clone();
+                let was_visible = tracked_window.is_visible().unwrap_or(false);
+                let recovery_app_handle = app_handle.clone();
+                log::warn!(
+                    "WebKit termino para {window_label} ({reason:?}); recreando ventana principal"
+                );
+                let _ = app_handle.run_on_main_thread(move || {
+                    recover_main_window_after_webview_crash(
+                        &recovery_app_handle,
+                        Some(tracked_window),
+                        was_visible,
+                    );
+                });
+            });
+    }) {
+        log::warn!("No se pudo enganchar recuperacion del webview en Linux: {error}");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn attach_main_window_crash_recovery(_window: &WebviewWindow, _app: &tauri::AppHandle) {}
+
+fn spawn_main_window(app: &tauri::AppHandle, should_show: bool, creation_delay_ms: u64) {
+    let state = app.state::<AppState>();
+    if should_show {
+        state
+            .show_main_window_when_ready
+            .store(true, Ordering::Release);
+    } else if !state.window_booting.load(Ordering::Acquire) {
+        state
+            .show_main_window_when_ready
+            .store(false, Ordering::Release);
+    }
+
+    if state.window_booting.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    if !should_show {
+        state
+            .show_main_window_when_ready
+            .store(false, Ordering::Release);
+    }
+
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        if creation_delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(creation_delay_ms));
+        }
+
+        let result = create_main_window(&app_handle).map(|window| {
+            let show_window = app_handle
+                .state::<AppState>()
+                .show_main_window_when_ready
+                .swap(false, Ordering::AcqRel);
+            app_handle
+                .state::<AppState>()
+                .main_window_crashed
+                .store(false, Ordering::Release);
+
+            if show_window {
+                show_main_window(&app_handle, &window);
+            } else {
+                window.hide().ok();
+            }
+        });
+
+        if let Err(error) = result {
+            log::error!("No se pudo recrear la ventana principal: {error}");
+        }
+
+        app_handle
+            .state::<AppState>()
+            .window_booting
+            .store(false, Ordering::Release);
+    });
+}
+
+fn recover_main_window_after_webview_crash(
+    app: &tauri::AppHandle,
+    stale_window: Option<WebviewWindow>,
+    should_show: bool,
+) {
+    app.state::<AppState>()
+        .main_window_crashed
+        .store(true, Ordering::Release);
+
+    let window = stale_window.or_else(|| app.get_webview_window(MAIN_WINDOW_LABEL));
+    if let Some(window) = window {
+        if let Err(error) = window.destroy() {
+            log::warn!("No se pudo destruir la ventana tras caida del webview: {error}");
+        }
+    }
+
+    if let Err(error) = ensure_keepalive_window(app) {
+        log::warn!("No se pudo asegurar la ventana keepalive durante recuperacion: {error}");
+    }
+
+    spawn_main_window(app, should_show, 60);
+}
+
 fn create_main_window(app: &tauri::AppHandle) -> Result<WebviewWindow> {
     let window_config = app
         .config()
@@ -444,6 +563,7 @@ fn create_main_window(app: &tauri::AppHandle) -> Result<WebviewWindow> {
     }
 
     attach_main_window_handlers(&window, app);
+    attach_main_window_crash_recovery(&window, app);
     Ok(window)
 }
 
@@ -606,6 +726,15 @@ fn resize_main_window(app: &tauri::AppHandle, height: f64) -> Result<()> {
 fn toggle_main_window(app: &tauri::AppHandle) -> Result<()> {
     ensure_keepalive_window(app)?;
 
+    if app
+        .state::<AppState>()
+        .main_window_crashed
+        .load(Ordering::Acquire)
+    {
+        recover_main_window_after_webview_crash(app, None, true);
+        return Ok(());
+    }
+
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let is_visible = window.is_visible().unwrap_or(false);
         if is_visible {
@@ -616,25 +745,7 @@ fn toggle_main_window(app: &tauri::AppHandle) -> Result<()> {
         return Ok(());
     }
 
-    let state = app.state::<AppState>();
-    if state.window_booting.swap(true, Ordering::AcqRel) {
-        return Ok(());
-    }
-
-    let app_handle = app.clone();
-    std::thread::spawn(move || {
-        let result = create_main_window(&app_handle).map(|window| {
-            show_main_window(&app_handle, &window);
-        });
-        if let Err(error) = result {
-            log::error!("No se pudo recrear la ventana principal: {error}");
-        }
-        app_handle
-            .state::<AppState>()
-            .window_booting
-            .store(false, Ordering::Release);
-    });
-
+    spawn_main_window(app, true, 0);
     Ok(())
 }
 
@@ -694,6 +805,12 @@ fn center_on_active_monitor(window: &WebviewWindow) -> Result<()> {
 }
 
 fn register_hotkey(app: &tauri::AppHandle) {
+    #[cfg(target_os = "linux")]
+    if is_wayland_session() {
+        log::info!("Atajo global nativo omitido en Wayland; usando portal");
+        return;
+    }
+
     let manager = app.global_shortcut();
     let primary = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
     if manager.register(primary).is_ok() {
@@ -710,11 +827,77 @@ fn register_hotkey(app: &tauri::AppHandle) {
 }
 
 #[cfg(target_os = "linux")]
+fn is_wayland_session() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some()
+        || std::env::var_os("XDG_SESSION_TYPE").is_some_and(|value| value == "wayland")
+}
+
+#[cfg(target_os = "linux")]
 fn register_wayland_portal_hotkey(app: &tauri::AppHandle) {
     let app_handle = app.clone();
     portal_shortcut::spawn_portal_shortcut_listener(move || {
         let _ = toggle_main_window(&app_handle);
     });
+}
+
+#[cfg(target_os = "linux")]
+fn register_toggle_socket(app: &tauri::AppHandle) {
+    let app_handle = app.clone();
+    std::thread::Builder::new()
+        .name("toggle-socket".into())
+        .spawn(move || {
+            use std::io::Read;
+            use std::os::unix::net::UnixListener;
+
+            let socket_path = linux_toggle_socket_path();
+            if let Some(parent) = socket_path.parent() {
+                if let Err(error) = std::fs::create_dir_all(parent) {
+                    log::error!("No se pudo crear carpeta para socket toggle: {error}");
+                    return;
+                }
+            }
+
+            let _ = std::fs::remove_file(&socket_path);
+            let listener = match UnixListener::bind(&socket_path) {
+                Ok(listener) => listener,
+                Err(error) => {
+                    log::error!("No se pudo crear socket toggle {socket_path:?}: {error}");
+                    return;
+                }
+            };
+
+            log::info!("Socket toggle escuchando en {}", socket_path.display());
+
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(mut stream) => {
+                        let mut buffer = [0_u8; 32];
+                        let _ = stream.read(&mut buffer);
+                        log::info!("Solicitud recibida en socket toggle");
+                        if let Err(error) = toggle_main_window(&app_handle) {
+                            log::error!("Error toggling launcher via socket: {error}");
+                        }
+                    }
+                    Err(error) => {
+                        log::error!("Error aceptando conexion de socket toggle: {error}");
+                    }
+                }
+            }
+        })
+        .ok();
+}
+
+#[cfg(target_os = "linux")]
+fn linux_toggle_socket_path() -> std::path::PathBuf {
+    if let Some(runtime_dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+        return std::path::PathBuf::from(runtime_dir).join("com.buscador.launcher.sock");
+    }
+
+    if let Some(home) = std::env::var_os("HOME") {
+        return std::path::PathBuf::from(home).join(".cache/com.buscador.launcher.sock");
+    }
+
+    std::path::PathBuf::from("/tmp/com.buscador.launcher.sock")
 }
 
 #[cfg(target_os = "windows")]
@@ -857,7 +1040,7 @@ fn apply_autostart_setting(enabled: bool) -> Result<()> {
 fn set_linux_autostart() -> Result<()> {
     let exe = std::env::current_exe().context("No se pudo resolver current_exe")?;
     let desktop_entry = format!(
-        "[Desktop Entry]\nType=Application\nName=Buscador\nExec=\"{}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        "[Desktop Entry]\nType=Application\nName=Buscador\nExec=\"{}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\nStartupWMClass=com.buscador.launcher\n",
         exe.to_string_lossy()
     );
 
@@ -865,12 +1048,14 @@ fn set_linux_autostart() -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).context("No se pudo crear carpeta de autostart Linux")?;
     }
+    remove_linux_legacy_autostart().ok();
     std::fs::write(path, desktop_entry).context("No se pudo escribir entrada autostart Linux")?;
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
 fn remove_linux_autostart() -> Result<()> {
+    remove_linux_legacy_autostart().ok();
     let path = linux_autostart_entry_path();
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -882,7 +1067,37 @@ fn remove_linux_autostart() -> Result<()> {
 #[cfg(target_os = "linux")]
 fn linux_autostart_entry_path() -> PathBuf {
     if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
-        return PathBuf::from(config_home).join("autostart").join("buscador.desktop");
+        return PathBuf::from(config_home)
+            .join("autostart")
+            .join("com.buscador.launcher.desktop");
+    }
+
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home)
+            .join(".config")
+            .join("autostart")
+            .join("com.buscador.launcher.desktop");
+    }
+
+    PathBuf::from("com.buscador.launcher.desktop")
+}
+
+#[cfg(target_os = "linux")]
+fn remove_linux_legacy_autostart() -> Result<()> {
+    let path = linux_legacy_autostart_entry_path();
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("No se pudo eliminar entrada autostart Linux legacy"),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_legacy_autostart_entry_path() -> PathBuf {
+    if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(config_home)
+            .join("autostart")
+            .join("buscador.desktop");
     }
 
     if let Some(home) = std::env::var_os("HOME") {
@@ -996,11 +1211,13 @@ pub fn run() {
     let startup_settings = settings_store::load_settings();
     let startup_settings_for_setup = startup_settings.clone();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(AppState {
             search_service: Arc::new(SearchService::new(startup_settings)),
             icon_cache: Mutex::new(HashMap::new()),
             window_booting: AtomicBool::new(false),
+            show_main_window_when_ready: AtomicBool::new(false),
+            main_window_crashed: AtomicBool::new(false),
             last_show_millis: AtomicU64::new(0),
             focused_since_show: AtomicBool::new(false),
         })
@@ -1022,8 +1239,9 @@ pub fn run() {
         )
         .register_uri_scheme_protocol("icon", move |_app_handle, request| {
             let path_str = request.uri().path().trim_start_matches('/');
-            let decoded = urlencoding::decode(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
-            
+            let decoded =
+                urlencoding::decode(path_str).unwrap_or(std::borrow::Cow::Borrowed(path_str));
+
             let path = std::path::PathBuf::from(decoded.as_ref());
             if path.exists() {
                 if let Ok(bytes) = std::fs::read(&path) {
@@ -1034,7 +1252,7 @@ pub fn run() {
                         .unwrap();
                 }
             }
-            
+
             tauri::http::Response::builder()
                 .status(404)
                 .body(Vec::new())
@@ -1047,6 +1265,7 @@ pub fn run() {
 
             if let Some(window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {
                 attach_main_window_handlers(&window, &app_handle);
+                attach_main_window_crash_recovery(&window, &app_handle);
                 if AGGRESSIVE_IDLE_MODE {
                     window.destroy().ok();
                     enter_idle_mode(&app_handle);
@@ -1057,10 +1276,13 @@ pub fn run() {
 
             // Register standard global shortcut (X11 / Windows / Mac)
             register_hotkey(&app_handle);
-            
+
             // Register Wayland specific portal shortcut for GNOME
             #[cfg(target_os = "linux")]
             register_wayland_portal_hotkey(&app_handle);
+
+            #[cfg(target_os = "linux")]
+            register_toggle_socket(&app_handle);
 
             Ok(())
         })
@@ -1078,6 +1300,12 @@ pub fn run() {
             resize_launcher,
             request_launcher_focus
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|_app, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            api.prevent_exit();
+        }
+    });
 }

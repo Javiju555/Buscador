@@ -22,7 +22,6 @@ enum WebSearchProvider {
 
 impl WebSearchService {
     pub fn new() -> Self {
-
         let client = Client::builder()
             .timeout(Duration::from_millis(1800))
             .connect_timeout(Duration::from_millis(1200))
@@ -32,7 +31,13 @@ impl WebSearchService {
         Self { client }
     }
 
-    pub fn search(&self, query: &str, limit: usize, provider: &str, api_key: &str) -> Vec<WebSearchHit> {
+    pub fn search(
+        &self,
+        query: &str,
+        limit: usize,
+        provider: &str,
+        api_key: &str,
+    ) -> Vec<WebSearchHit> {
         if query.trim().is_empty() || limit == 0 {
             return vec![];
         }

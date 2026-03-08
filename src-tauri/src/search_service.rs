@@ -313,20 +313,62 @@ fn resolve_linux_special_path(query: &str) -> Option<(String, String)> {
 
     match alias.as_str() {
         "home" | "~" => home.map(|path| ("home".to_string(), path)),
-        "desktop" => home.map(|base| ("desktop".to_string(), Path::new(&base).join("Desktop").to_string_lossy().to_string())),
-        "documents" | "docs" => home.map(|base| ("documents".to_string(), Path::new(&base).join("Documents").to_string_lossy().to_string())),
-        "downloads" => home.map(|base| ("downloads".to_string(), Path::new(&base).join("Downloads").to_string_lossy().to_string())),
+        "desktop" => home.map(|base| {
+            (
+                "desktop".to_string(),
+                Path::new(&base)
+                    .join("Desktop")
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        }),
+        "documents" | "docs" => home.map(|base| {
+            (
+                "documents".to_string(),
+                Path::new(&base)
+                    .join("Documents")
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        }),
+        "downloads" => home.map(|base| {
+            (
+                "downloads".to_string(),
+                Path::new(&base)
+                    .join("Downloads")
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        }),
         "config" => std::env::var("XDG_CONFIG_HOME")
             .ok()
-            .or_else(|| home.as_ref().map(|base| Path::new(base).join(".config").to_string_lossy().to_string()))
+            .or_else(|| {
+                home.as_ref().map(|base| {
+                    Path::new(base)
+                        .join(".config")
+                        .to_string_lossy()
+                        .to_string()
+                })
+            })
             .map(|path| ("config".to_string(), path)),
         "data" => std::env::var("XDG_DATA_HOME")
             .ok()
-            .or_else(|| home.as_ref().map(|base| Path::new(base).join(".local").join("share").to_string_lossy().to_string()))
+            .or_else(|| {
+                home.as_ref().map(|base| {
+                    Path::new(base)
+                        .join(".local")
+                        .join("share")
+                        .to_string_lossy()
+                        .to_string()
+                })
+            })
             .map(|path| ("data".to_string(), path)),
         "cache" => std::env::var("XDG_CACHE_HOME")
             .ok()
-            .or_else(|| home.as_ref().map(|base| Path::new(base).join(".cache").to_string_lossy().to_string()))
+            .or_else(|| {
+                home.as_ref()
+                    .map(|base| Path::new(base).join(".cache").to_string_lossy().to_string())
+            })
             .map(|path| ("cache".to_string(), path)),
         "temp" | "tmp" => std::env::var("TMPDIR")
             .ok()
@@ -415,34 +457,174 @@ struct MathHint {
 }
 
 const MATH_HINTS: &[MathHint] = &[
-    MathHint { token: "sin", insert: "sin()", label: "sin(x)", description: "Seno (radianes)" },
-    MathHint { token: "cos", insert: "cos()", label: "cos(x)", description: "Coseno (radianes)" },
-    MathHint { token: "tan", insert: "tan()", label: "tan(x)", description: "Tangente (radianes)" },
-    MathHint { token: "asin", insert: "asin()", label: "asin(x)", description: "Arcoseno" },
-    MathHint { token: "acos", insert: "acos()", label: "acos(x)", description: "Arcocoseno" },
-    MathHint { token: "atan", insert: "atan()", label: "atan(x)", description: "Arcotangente" },
-    MathHint { token: "sqrt", insert: "sqrt()", label: "sqrt(x)", description: "Raiz cuadrada" },
-    MathHint { token: "cbrt", insert: "cbrt()", label: "cbrt(x)", description: "Raiz cubica" },
-    MathHint { token: "ln", insert: "ln()", label: "ln(x)", description: "Logaritmo natural" },
-    MathHint { token: "log", insert: "log()", label: "log(x,b)", description: "Logaritmo base b (1 o 2 args)" },
-    MathHint { token: "log10", insert: "log10()", label: "log10(x)", description: "Logaritmo base 10" },
-    MathHint { token: "pow", insert: "pow(,)", label: "pow(x,y)", description: "Potencia x^y" },
-    MathHint { token: "fact", insert: "fact()", label: "fact(n)", description: "Factorial" },
-    MathHint { token: "perm", insert: "perm(,)", label: "perm(n,r)", description: "Permutaciones nPr" },
-    MathHint { token: "comb", insert: "comb(,)", label: "comb(n,r)", description: "Combinaciones nCr" },
-    MathHint { token: "abs", insert: "abs()", label: "abs(x)", description: "Valor absoluto" },
-    MathHint { token: "min", insert: "min(,)", label: "min(a,b,...)", description: "Minimo de varios valores" },
-    MathHint { token: "max", insert: "max(,)", label: "max(a,b,...)", description: "Maximo de varios valores" },
-    MathHint { token: "clamp", insert: "clamp(,,)", label: "clamp(x,min,max)", description: "Limita x al rango [min,max]" },
-    MathHint { token: "floor", insert: "floor()", label: "floor(x)", description: "Redondeo hacia abajo" },
-    MathHint { token: "ceil", insert: "ceil()", label: "ceil(x)", description: "Redondeo hacia arriba" },
-    MathHint { token: "round", insert: "round()", label: "round(x)", description: "Redondeo al entero mas cercano" },
-    MathHint { token: "exp", insert: "exp()", label: "exp(x)", description: "e^x" },
-    MathHint { token: "deg", insert: "deg()", label: "deg(x)", description: "Convierte radianes a grados" },
-    MathHint { token: "rad", insert: "rad()", label: "rad(x)", description: "Convierte grados a radianes" },
-    MathHint { token: "pi", insert: "pi", label: "pi", description: "Constante PI" },
-    MathHint { token: "e", insert: "e", label: "e", description: "Constante de Euler" },
-    MathHint { token: "tau", insert: "tau", label: "tau", description: "Constante TAU" },
+    MathHint {
+        token: "sin",
+        insert: "sin()",
+        label: "sin(x)",
+        description: "Seno (radianes)",
+    },
+    MathHint {
+        token: "cos",
+        insert: "cos()",
+        label: "cos(x)",
+        description: "Coseno (radianes)",
+    },
+    MathHint {
+        token: "tan",
+        insert: "tan()",
+        label: "tan(x)",
+        description: "Tangente (radianes)",
+    },
+    MathHint {
+        token: "asin",
+        insert: "asin()",
+        label: "asin(x)",
+        description: "Arcoseno",
+    },
+    MathHint {
+        token: "acos",
+        insert: "acos()",
+        label: "acos(x)",
+        description: "Arcocoseno",
+    },
+    MathHint {
+        token: "atan",
+        insert: "atan()",
+        label: "atan(x)",
+        description: "Arcotangente",
+    },
+    MathHint {
+        token: "sqrt",
+        insert: "sqrt()",
+        label: "sqrt(x)",
+        description: "Raiz cuadrada",
+    },
+    MathHint {
+        token: "cbrt",
+        insert: "cbrt()",
+        label: "cbrt(x)",
+        description: "Raiz cubica",
+    },
+    MathHint {
+        token: "ln",
+        insert: "ln()",
+        label: "ln(x)",
+        description: "Logaritmo natural",
+    },
+    MathHint {
+        token: "log",
+        insert: "log()",
+        label: "log(x,b)",
+        description: "Logaritmo base b (1 o 2 args)",
+    },
+    MathHint {
+        token: "log10",
+        insert: "log10()",
+        label: "log10(x)",
+        description: "Logaritmo base 10",
+    },
+    MathHint {
+        token: "pow",
+        insert: "pow(,)",
+        label: "pow(x,y)",
+        description: "Potencia x^y",
+    },
+    MathHint {
+        token: "fact",
+        insert: "fact()",
+        label: "fact(n)",
+        description: "Factorial",
+    },
+    MathHint {
+        token: "perm",
+        insert: "perm(,)",
+        label: "perm(n,r)",
+        description: "Permutaciones nPr",
+    },
+    MathHint {
+        token: "comb",
+        insert: "comb(,)",
+        label: "comb(n,r)",
+        description: "Combinaciones nCr",
+    },
+    MathHint {
+        token: "abs",
+        insert: "abs()",
+        label: "abs(x)",
+        description: "Valor absoluto",
+    },
+    MathHint {
+        token: "min",
+        insert: "min(,)",
+        label: "min(a,b,...)",
+        description: "Minimo de varios valores",
+    },
+    MathHint {
+        token: "max",
+        insert: "max(,)",
+        label: "max(a,b,...)",
+        description: "Maximo de varios valores",
+    },
+    MathHint {
+        token: "clamp",
+        insert: "clamp(,,)",
+        label: "clamp(x,min,max)",
+        description: "Limita x al rango [min,max]",
+    },
+    MathHint {
+        token: "floor",
+        insert: "floor()",
+        label: "floor(x)",
+        description: "Redondeo hacia abajo",
+    },
+    MathHint {
+        token: "ceil",
+        insert: "ceil()",
+        label: "ceil(x)",
+        description: "Redondeo hacia arriba",
+    },
+    MathHint {
+        token: "round",
+        insert: "round()",
+        label: "round(x)",
+        description: "Redondeo al entero mas cercano",
+    },
+    MathHint {
+        token: "exp",
+        insert: "exp()",
+        label: "exp(x)",
+        description: "e^x",
+    },
+    MathHint {
+        token: "deg",
+        insert: "deg()",
+        label: "deg(x)",
+        description: "Convierte radianes a grados",
+    },
+    MathHint {
+        token: "rad",
+        insert: "rad()",
+        label: "rad(x)",
+        description: "Convierte grados a radianes",
+    },
+    MathHint {
+        token: "pi",
+        insert: "pi",
+        label: "pi",
+        description: "Constante PI",
+    },
+    MathHint {
+        token: "e",
+        insert: "e",
+        label: "e",
+        description: "Constante de Euler",
+    },
+    MathHint {
+        token: "tau",
+        insert: "tau",
+        label: "tau",
+        description: "Constante TAU",
+    },
 ];
 
 fn build_math_autocomplete(expression: &str, limit: usize, explicit: bool) -> Vec<SearchResult> {
@@ -465,7 +647,10 @@ fn build_math_autocomplete(expression: &str, limit: usize, explicit: bool) -> Ve
             }
 
             if hint.token.starts_with(&normalized_token) {
-                return Some((hint, base_hint_score(hint, explicit) + 35 - normalized_token.len() as i32));
+                return Some((
+                    hint,
+                    base_hint_score(hint, explicit) + 35 - normalized_token.len() as i32,
+                ));
             }
 
             if hint.token.contains(&normalized_token) {
@@ -541,18 +726,24 @@ fn looks_like_math(query: &str) -> bool {
     }
 
     const FUNCTION_NAMES: &[&str] = &[
-        "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "sqrt", "cbrt",
-        "ln", "log", "log10", "exp", "abs", "floor", "ceil", "round", "trunc", "sign", "pow",
-        "min", "max", "clamp", "rad", "deg", "fact", "perm", "comb", "pi", "tau", "e",
+        "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "sqrt", "cbrt", "ln",
+        "log", "log10", "exp", "abs", "floor", "ceil", "round", "trunc", "sign", "pow", "min",
+        "max", "clamp", "rad", "deg", "fact", "perm", "comb", "pi", "tau", "e",
     ];
 
     let mut has_math_marker = false;
     for character in trimmed.chars() {
-        if matches!(character, '+' | '-' | '*' | '/' | '%' | '^' | '(' | ')' | ',' | '.' | ';') {
+        if matches!(
+            character,
+            '+' | '-' | '*' | '/' | '%' | '^' | '(' | ')' | ',' | '.' | ';'
+        ) {
             has_math_marker = true;
             continue;
         }
-        if character.is_ascii_digit() || character.is_ascii_alphabetic() || character.is_whitespace() {
+        if character.is_ascii_digit()
+            || character.is_ascii_alphabetic()
+            || character.is_whitespace()
+        {
             continue;
         }
         return false;

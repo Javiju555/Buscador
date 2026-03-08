@@ -18,7 +18,11 @@ pub fn load_settings() -> LauncherSettings {
     };
 
     if let Ok(roots) = std::env::var("BUSCADOR_ROOTS") {
-        let separator = if cfg!(target_os = "windows") { ';' } else { ':' };
+        let separator = if cfg!(target_os = "windows") {
+            ';'
+        } else {
+            ':'
+        };
         let parsed: Vec<String> = roots
             .split(separator)
             .map(str::trim)
@@ -118,10 +122,9 @@ fn default_settings() -> LauncherSettings {
 #[cfg(target_os = "windows")]
 fn is_windows_autostart_enabled() -> bool {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let run_key = match hkcu.open_subkey_with_flags(
-        r"Software\Microsoft\Windows\CurrentVersion\Run",
-        KEY_READ,
-    ) {
+    let run_key = match hkcu
+        .open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Run", KEY_READ)
+    {
         Ok(value) => value,
         Err(_) => return false,
     };
@@ -134,13 +137,33 @@ fn is_windows_autostart_enabled() -> bool {
 
 #[cfg(target_os = "linux")]
 fn is_linux_autostart_enabled() -> bool {
-    linux_autostart_entry_path().exists()
+    linux_autostart_entry_path().exists() || linux_legacy_autostart_entry_path().exists()
 }
 
 #[cfg(target_os = "linux")]
 fn linux_autostart_entry_path() -> PathBuf {
     if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
-        return PathBuf::from(config_home).join("autostart").join("buscador.desktop");
+        return PathBuf::from(config_home)
+            .join("autostart")
+            .join("com.buscador.launcher.desktop");
+    }
+
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home)
+            .join(".config")
+            .join("autostart")
+            .join("com.buscador.launcher.desktop");
+    }
+
+    PathBuf::from("com.buscador.launcher.desktop")
+}
+
+#[cfg(target_os = "linux")]
+fn linux_legacy_autostart_entry_path() -> PathBuf {
+    if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(config_home)
+            .join("autostart")
+            .join("buscador.desktop");
     }
 
     if let Some(home) = std::env::var_os("HOME") {
