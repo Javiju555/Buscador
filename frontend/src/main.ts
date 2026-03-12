@@ -40,6 +40,30 @@ if (!appElement) {
 }
 const appRoot: HTMLDivElement = appElement;
 
+function blockBrowserZoom(): void {
+  if (document.documentElement.dataset.zoomGuardInstalled === "1") return;
+  document.documentElement.dataset.zoomGuardInstalled = "1";
+
+  const preventIfCancelable = (event: Event): void => {
+    if (event.cancelable) event.preventDefault();
+  };
+
+  window.addEventListener("wheel", event => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    preventIfCancelable(event);
+  }, { passive: false, capture: true });
+
+  const gestureHandler = preventIfCancelable as EventListener;
+  ["gesturestart", "gesturechange", "gestureend"].forEach(type => {
+    document.addEventListener(type, gestureHandler, { passive: false, capture: true });
+  });
+
+  document.documentElement.style.touchAction = "pan-x pan-y";
+  if (document.body) document.body.style.touchAction = "pan-x pan-y";
+}
+
+blockBrowserZoom();
+
 appRoot.innerHTML = `
   <main class="launcher-shell">
     <section class="launcher-pill">

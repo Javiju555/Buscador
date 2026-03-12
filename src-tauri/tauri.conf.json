@@ -5,8 +5,8 @@
   "identifier": "com.buscador.launcher",
   "build": {
     "frontendDist": "../frontend/dist",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "cd ../frontend && bun run dev --host --port 1420",
+    "devUrl": "http://localhost:1423",
+    "beforeDevCommand": "cd ../frontend && bun run dev --host --port 1423",
     "beforeBuildCommand": "cd ../frontend && bun run build"
   },
   "app": {
@@ -28,7 +28,8 @@
         "shadow": false,
         "skipTaskbar": true,
         "center": true,
-        "focus": true
+        "focus": true,
+        "zoomHotkeysEnabled": false
       }
     ],
     "security": {
