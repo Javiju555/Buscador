@@ -41,6 +41,11 @@ impl SearchService {
         self.app_catalog.refresh();
     }
 
+    /// Lista todas las apps para el grid/Launchpad: (name, exec, desktop_path)
+    pub fn list_apps(&self) -> Vec<(String, String, String)> {
+        self.app_catalog.list_all()
+    }
+
     pub fn search(&self, raw_query: &str, limit: usize) -> SearchResponse {
         self.search_internal(raw_query, limit, true)
     }

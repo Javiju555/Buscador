@@ -111,6 +111,23 @@ fn system_theme() -> String {
     detect_windows_theme().unwrap_or("dark").to_string()
 }
 
+#[derive(serde::Serialize)]
+struct GridAppEntry {
+    name: String,
+    exec: String,
+    desktop_path: String,
+}
+
+#[tauri::command]
+fn get_apps(state: tauri::State<'_, AppState>) -> Vec<GridAppEntry> {
+    state
+        .search_service
+        .list_apps()
+        .into_iter()
+        .map(|(name, exec, desktop_path)| GridAppEntry { name, exec, desktop_path })
+        .collect()
+}
+
 #[tauri::command]
 fn resolve_icon(path: String, state: tauri::State<'_, AppState>) -> Option<String> {
     let path = path.trim();
@@ -1298,7 +1315,8 @@ pub fn run() {
             system_theme,
             resolve_icon,
             resize_launcher,
-            request_launcher_focus
+            request_launcher_focus,
+            get_apps
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

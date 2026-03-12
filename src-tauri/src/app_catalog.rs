@@ -102,6 +102,14 @@ impl AppCatalog {
             .collect()
     }
 
+    /// Devuelve todos los entries para el grid/Launchpad
+    pub fn list_all(&self) -> Vec<(String, String, String)> {
+        let Ok(apps) = self.apps.read() else { return vec![]; };
+        apps.iter()
+            .map(|e| (e.name.clone(), e.path.clone(), e.subtitle.clone()))
+            .collect()
+    }
+
     pub fn refresh(&self) {
         let next = build_catalog();
         if next.is_empty() {
