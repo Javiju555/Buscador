@@ -220,6 +220,8 @@ fn execute_payload(payload: ExecutePayload) -> Result<()> {
         }
         SearchResultKind::Web => {
             open_url(&payload.primary_value)?;
+            #[cfg(target_os = "linux")]
+            hyprland_focus_default_browser();
         }
         SearchResultKind::Command => {
             let args = resolve_command_arguments(&payload.raw_query, &payload.title);
@@ -248,7 +250,99 @@ fn execute_app(target: &str) -> Result<()> {
     let (command, args) = parts
         .split_first()
         .ok_or_else(|| anyhow::anyhow!("No se pudo resolver comando de app"))?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut cmd = Command::new(command);
+        cmd.args(args.to_vec());
+        if let Some(home) = std::env::var_os("HOME") {
+            cmd.current_dir(home);
+        }
+        let child = cmd
+            .spawn()
+            .with_context(|| format!("No se pudo ejecutar {command}"))?;
+        hyprland_focus_pid(child.id());
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "linux"))]
     run_command(command, args)
+}
+
+/// Foco automático tras lanzar una app en Hyprland.
+/// Reintenta con delays crecientes hasta que la ventana aparece (pid match).
+#[cfg(target_os = "linux")]
+fn hyprland_focus_pid(pid: u32) {
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
+        return;
+    }
+    std::thread::spawn(move || {
+        for delay_ms in [250u64, 500, 900, 1500] {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+            let ok = Command::new("hyprctl")
+                .args(["dispatch", "focuswindow", &format!("pid:{pid}")])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if ok {
+                return;
+            }
+        }
+    });
+}
+
+/// Foco automático al browser por defecto tras abrir una URL en Hyprland.
+/// Lee la clase WM del browser default via xdg-settings + archivo .desktop.
+#[cfg(target_os = "linux")]
+fn hyprland_focus_default_browser() {
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
+        return;
+    }
+    std::thread::spawn(|| {
+        let wm_class = default_browser_wm_class();
+        std::thread::sleep(Duration::from_millis(350));
+        let _ = Command::new("hyprctl")
+            .args(["dispatch", "focuswindow", &format!("class:{wm_class}")])
+            .output();
+    });
+}
+
+/// Resuelve la clase WM del browser predeterminado.
+/// Orden: StartupWMClass en .desktop → nombre del .desktop sin extensión → "brave-browser".
+#[cfg(target_os = "linux")]
+fn default_browser_wm_class() -> String {
+    let desktop_file = Command::new("xdg-settings")
+        .args(["get", "default-web-browser"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_default();
+    let desktop_name = desktop_file.trim().trim_end_matches(".desktop");
+
+    // Buscar StartupWMClass en /usr/share/applications o ~/.local/share/applications
+    let search_paths = [
+        format!("/usr/share/applications/{}.desktop", desktop_name),
+        format!(
+            "{}/.local/share/applications/{}.desktop",
+            std::env::var("HOME").unwrap_or_default(),
+            desktop_name
+        ),
+    ];
+    for path in &search_paths {
+        if let Ok(contents) = std::fs::read_to_string(path) {
+            for line in contents.lines() {
+                if let Some(class) = line.strip_prefix("StartupWMClass=") {
+                    return class.trim().to_string();
+                }
+            }
+        }
+    }
+
+    // Fallback: nombre del .desktop (suele coincidir con la clase WM)
+    if !desktop_name.is_empty() {
+        return desktop_name.to_string();
+    }
+    "brave-browser".to_string()
 }
 
 fn open_path(path: &str) -> Result<()> {
