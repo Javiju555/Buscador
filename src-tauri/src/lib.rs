@@ -2,6 +2,7 @@ mod app_catalog;
 mod calculator;
 mod command_catalog;
 mod file_catalog;
+mod freq_store;
 mod icon;
 mod models;
 mod search_service;
@@ -18,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use arboard::Clipboard;
+use freq_store::FreqStore;
 use models::{ExecutePayload, LauncherSettings, SearchResponse, SearchResultKind};
 use search_service::SearchService;
 use tauri::{Emitter, LogicalSize, Manager, Size, WebviewWindow};
@@ -39,6 +41,7 @@ const BLUR_CLOSE_GRACE_AFTER_SHOW_MS: u64 = 950;
 
 struct AppState {
     search_service: Arc<SearchService>,
+    freq_store: Arc<Mutex<FreqStore>>,
     icon_cache: Mutex<HashMap<String, Option<String>>>,
     window_booting: AtomicBool,
     show_main_window_when_ready: AtomicBool,
@@ -53,9 +56,11 @@ fn search(
     limit: Option<usize>,
     state: tauri::State<'_, AppState>,
 ) -> SearchResponse {
-    state
+    let mut response = state
         .search_service
-        .search(&query, limit.unwrap_or(10).min(24))
+        .search(&query, limit.unwrap_or(10).min(24));
+    apply_freq_bonus(&state.freq_store, &mut response);
+    response
 }
 
 #[tauri::command]
@@ -64,9 +69,38 @@ fn search_fast(
     limit: Option<usize>,
     state: tauri::State<'_, AppState>,
 ) -> SearchResponse {
-    state
+    let mut response = state
         .search_service
-        .search_fast(&query, limit.unwrap_or(10).min(24))
+        .search_fast(&query, limit.unwrap_or(10).min(24));
+    apply_freq_bonus(&state.freq_store, &mut response);
+    response
+}
+
+fn apply_freq_bonus(freq_store: &Arc<Mutex<FreqStore>>, response: &mut SearchResponse) {
+    let Ok(store) = freq_store.lock() else { return };
+    let mut changed = false;
+    for result in &mut response.results {
+        if matches!(result.kind, SearchResultKind::Calculation | SearchResultKind::Info) {
+            continue;
+        }
+        let bonus = store.score_bonus(&result.primary_value);
+        if bonus > 0 {
+            result.score = result.score.saturating_add(bonus);
+            changed = true;
+        }
+    }
+    if changed {
+        // Re-sort non-special results keeping Calculation/Info at end
+        let mut regular: Vec<_> = response
+            .results
+            .drain(..)
+            .filter(|r| !matches!(r.kind, SearchResultKind::Calculation | SearchResultKind::Info))
+            .collect();
+        let special: Vec<_> = response.results.drain(..).collect();
+        regular.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.title.cmp(&b.title)));
+        response.results = regular;
+        response.results.extend(special);
+    }
 }
 
 #[tauri::command]
@@ -91,7 +125,12 @@ fn reindex_files(state: tauri::State<'_, AppState>) {
 }
 
 #[tauri::command]
-fn execute(payload: ExecutePayload) -> Result<(), String> {
+fn execute(payload: ExecutePayload, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    if matches!(payload.kind, SearchResultKind::App | SearchResultKind::Command | SearchResultKind::File) {
+        if let Ok(mut store) = state.freq_store.lock() {
+            store.increment(&payload.primary_value);
+        }
+    }
     execute_payload(payload).map_err(|error| error.to_string())
 }
 
@@ -1325,6 +1364,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .manage(AppState {
             search_service: Arc::new(SearchService::new(startup_settings)),
+            freq_store: Arc::new(Mutex::new(FreqStore::load())),
             icon_cache: Mutex::new(HashMap::new()),
             window_booting: AtomicBool::new(false),
             show_main_window_when_ready: AtomicBool::new(false),

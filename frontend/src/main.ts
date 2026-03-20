@@ -1129,10 +1129,8 @@ gridToggle.addEventListener("click", () => {
 void loadGridApps();
 
 // Si estamos en grid mode y el usuario escribe, filtramos en el grid
-const _origInputHandler = queryInput.oninput;
 queryInput.addEventListener("input", () => {
   if (gridMode) {
     filterGrid(queryInput.value);
   }
 }, true);
-}

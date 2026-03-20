@@ -86,8 +86,6 @@ body {
   border: 1px solid var(--pill-border);
   border-radius: 999px;
   background: var(--pill-bg);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
   box-shadow:
     inset 0 1px 0 var(--pill-inner-line),
     0 0 0 0px transparent,
@@ -203,8 +201,6 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 20px;
   background: var(--settings-bg);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
   padding: 14px 16px;
   box-shadow: 0 16px 36px -24px var(--shadow);
 }
@@ -302,8 +298,6 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 20px;
   background: var(--panel-bg);
-  backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
   box-shadow: 0 24px 48px -28px var(--shadow);
   padding: 8px;
   max-height: 500px;
@@ -450,8 +444,6 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 20px;
   background: var(--panel-bg);
-  backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
   box-shadow: 0 24px 48px -28px var(--shadow);
   padding: 16px 12px 12px;
   animation: panel-appear 150ms ease;

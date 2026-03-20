@@ -7,7 +7,7 @@
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:1423",
     "beforeDevCommand": "cd ../frontend && bun run dev --host --port 1423",
-    "beforeBuildCommand": "cd ../frontend && bun run build"
+    "beforeBuildCommand": "cd /home/javiju/proyectos/Buscador/frontend && /home/javiju/.bun/bin/bun run build"
   },
   "app": {
     "enableGTKAppId": true,

@@ -100,13 +100,15 @@ impl SearchService {
             None
         };
 
-        let calculation = if mode == SearchMode::Mixed && looks_like_math(&query) {
+        let is_math = mode == SearchMode::Mixed && looks_like_math(&query);
+
+        let calculation = if is_math {
             build_calculation(&query, false).into_iter().next()
         } else {
             None
         };
 
-        let mut math_hints = if mode == SearchMode::Mixed && looks_like_math(&query) {
+        let mut math_hints = if is_math {
             build_math_autocomplete(&query, 3, false)
         } else {
             vec![]
@@ -116,7 +118,9 @@ impl SearchService {
         if mode == SearchMode::Mixed {
             bag.extend(self.app_catalog.search(&query, limit));
         }
-        if mode == SearchMode::Mixed || mode == SearchMode::Command {
+        // Skip system commands when the query looks like a math expression —
+        // they match on numeric substrings (e.g. "mpg123" for "23+23") and add noise.
+        if (mode == SearchMode::Mixed && !is_math) || mode == SearchMode::Command {
             bag.extend(self.command_catalog.search(&query, limit));
         }
         if mode == SearchMode::File || (mode == SearchMode::Mixed && include_files_in_mixed) {
