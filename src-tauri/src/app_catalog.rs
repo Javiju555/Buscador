@@ -386,12 +386,26 @@ fn collect_linux_desktop_entries(found: &mut BTreeMap<String, AppEntry>) {
     }
 }
 
+/// Returns the language code from $LANG (e.g. "es_ES.UTF-8" → "es_ES" and "es").
+#[cfg(target_os = "linux")]
+fn system_lang_tags() -> (String, String) {
+    let lang = std::env::var("LANG").unwrap_or_default();
+    // Strip encoding: "es_ES.UTF-8" → "es_ES"
+    let lang_territory = lang.split('.').next().unwrap_or("").to_string();
+    // Extract language only: "es_ES" → "es"
+    let lang_only = lang_territory.split('_').next().unwrap_or("").to_string();
+    (lang_territory, lang_only)
+}
+
 #[cfg(target_os = "linux")]
 fn parse_linux_desktop_entry(path: &Path) -> Option<(String, String, String)> {
     let text = std::fs::read_to_string(path).ok()?;
 
+    let (lang_territory, lang_only) = system_lang_tags();
+
     let mut in_desktop_entry = false;
     let mut name: Option<String> = None;
+    let mut name_localized: Option<String> = None; // Name[es]= or Name[es_ES]=
     let mut exec: Option<String> = None;
     let mut no_display = false;
     let mut hidden = false;
@@ -418,6 +432,22 @@ fn parse_linux_desktop_entry(path: &Path) -> Option<(String, String, String)> {
 
         let key = key.trim();
         let value = value.trim();
+
+        // Localized name: Name[es_ES]= takes priority over Name[es]= over Name=
+        if key.starts_with("Name[") && key.ends_with(']') {
+            let locale = &key[5..key.len() - 1];
+            if !value.is_empty() {
+                if locale.eq_ignore_ascii_case(&lang_territory) {
+                    // Exact match (es_ES) — highest priority, use immediately
+                    name_localized = Some(value.to_string());
+                } else if locale.eq_ignore_ascii_case(&lang_only) && name_localized.is_none() {
+                    // Language-only match (es) — use if no exact match yet
+                    name_localized = Some(value.to_string());
+                }
+            }
+            continue;
+        }
+
         if key.eq_ignore_ascii_case("Name") {
             if !value.is_empty() {
                 name = Some(value.to_string());
@@ -458,7 +488,8 @@ fn parse_linux_desktop_entry(path: &Path) -> Option<(String, String, String)> {
         return None;
     }
 
-    let name = name?;
+    // Prefer localized name if available
+    let name = name_localized.or(name)?;
     let exec = exec?;
     let subtitle = path.to_string_lossy().to_string();
     Some((name, exec, subtitle))
