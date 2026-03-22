@@ -10,6 +10,9 @@ rust-version = "1.77.2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [lib]
 name = "buscador_tauri_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -54,3 +57,6 @@ windows = { version = "0.61", features = [
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0.2", features = ["v2_20"] }
+
+[profile.release]
+strip = true
