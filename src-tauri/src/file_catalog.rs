@@ -204,6 +204,7 @@ fn normalize_settings(settings: LauncherSettings) -> LauncherSettings {
         max_files,
         web_provider: settings.web_provider.trim().to_ascii_lowercase(),
         web_api_key: settings.web_api_key.trim().to_string(),
+        theme: settings.theme,
     }
 }
 
@@ -273,6 +274,7 @@ fn default_settings() -> LauncherSettings {
         max_files: DEFAULT_MAX_ENTRIES,
         web_provider: String::new(),
         web_api_key: String::new(),
+        theme: "system".to_string(),
     }
 }
 

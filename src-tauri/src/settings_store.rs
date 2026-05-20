@@ -95,15 +95,21 @@ fn settings_path() -> PathBuf {
     {
         if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
             return PathBuf::from(config_home)
-                .join("buscador-launcher")
-                .join("settings.json");
+                .join("fenix")
+                .join("buscador.json");
         }
     }
 
     if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        #[cfg(target_os = "windows")]
         return PathBuf::from(home)
             .join(".buscador-launcher")
             .join("settings.json");
+        #[cfg(not(target_os = "windows"))]
+        return PathBuf::from(home)
+            .join(".config")
+            .join("fenix")
+            .join("buscador.json");
     }
 
     PathBuf::from("buscador-settings.json")
@@ -116,6 +122,7 @@ fn default_settings() -> LauncherSettings {
         max_files: 25_000,
         web_provider: String::new(),
         web_api_key: String::new(),
+        theme: "system".to_string(),
     }
 }
 

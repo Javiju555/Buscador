@@ -48,4 +48,10 @@ pub struct LauncherSettings {
     pub web_provider: String,
     #[serde(default)]
     pub web_api_key: String,
+    #[serde(default = "default_theme")]
+    pub theme: String,
+}
+
+fn default_theme() -> String {
+    "system".to_string()
 }
