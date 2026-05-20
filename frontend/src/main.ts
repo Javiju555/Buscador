@@ -76,12 +76,6 @@ appRoot.innerHTML = `
         placeholder="Buscar apps, comandos, archivos, web (w ...) o calculos"
       />
       <div class="pill-actions">
-        <button id="grid-toggle" class="pill-action-btn" type="button" title="Vista de apps">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-            <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-          </svg>
-        </button>
         <button id="settings-toggle" class="settings-toggle" type="button" title="Ajustes">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
@@ -139,10 +133,7 @@ appRoot.innerHTML = `
       <p id="status-line" class="status-line"></p>
       <div id="results-list" class="results-list"></div>
     </section>
-    <section id="grid-panel" class="grid-panel hidden">
-      <div id="grid-apps" class="grid-apps"></div>
-      <div id="grid-pagination" class="grid-pagination"></div>
-    </section>
+
   </main>
 `;
 
@@ -166,10 +157,6 @@ const settingsSaveButton = document.querySelector<HTMLButtonElement>("#settings-
 const settingsReindexButton = document.querySelector<HTMLButtonElement>("#settings-reindex")!;
 const settingsStatus = document.querySelector<HTMLElement>("#settings-status")!;
 const launcherPill = document.querySelector<HTMLElement>(".launcher-pill")!;
-const gridToggle = document.querySelector<HTMLButtonElement>("#grid-toggle")!;
-const gridPanel = document.querySelector<HTMLElement>("#grid-panel")!;
-const gridApps = document.querySelector<HTMLElement>("#grid-apps")!;
-const gridPagination = document.querySelector<HTMLElement>("#grid-pagination")!;
 
 let debounceTimer: number | undefined;
 let currentQuery = "";
@@ -973,164 +960,3 @@ function badgeFor(kind: SearchResultKind): string {
   }
 }
 
-// ─── GRID MODE ────────────────────────────────────────────────────
-
-interface GridAppEntry {
-  name: string;
-  exec: string;
-  desktop_path: string;
-}
-
-const GRID_APPS_PER_PAGE = 30; // 6×5
-let gridAllApps: GridAppEntry[] = [];
-let gridFilteredApps: GridAppEntry[] = [];
-let gridPage = 0;
-let gridMode = false;
-let gridIconCache = new Map<string, string>();
-
-async function loadGridApps(): Promise<void> {
-  try {
-    gridAllApps = await invoke<GridAppEntry[]>("get_apps");
-    gridAllApps.sort((a, b) => a.name.localeCompare(b.name, "es"));
-  } catch {
-    // En dev browser: usar datos mock
-    gridAllApps = [
-      { name: "Antigravity", exec: "antigravity", desktop_path: "" },
-      { name: "Brave", exec: "brave", desktop_path: "" },
-      { name: "Calculadora", exec: "gnome-calculator", desktop_path: "" },
-      { name: "Archivos", exec: "nautilus", desktop_path: "" },
-      { name: "Terminal", exec: "kgx", desktop_path: "" },
-      { name: "Configuración", exec: "gnome-control-center", desktop_path: "" },
-      { name: "Música", exec: "rhythmbox", desktop_path: "" },
-      { name: "Fotos", exec: "eog", desktop_path: "" },
-      { name: "ScalePad", exec: "scalepad", desktop_path: "" },
-      { name: "Monitor del sistema", exec: "gnome-system-monitor", desktop_path: "" },
-      { name: "Texto", exec: "gedit", desktop_path: "" },
-      { name: "Videos", exec: "totem", desktop_path: "" },
-    ];
-  }
-  gridFilteredApps = [...gridAllApps];
-}
-
-function openGridMode(): void {
-  gridMode = true;
-  gridPage = 0;
-  gridFilteredApps = [...gridAllApps];
-  gridToggle.classList.add("active");
-  dropdownPanel.classList.add("hidden");
-  settingsPanel.classList.add("hidden");
-  gridPanel.classList.remove("hidden");
-  queryInput.placeholder = "Buscar aplicaciones...";
-  renderGrid();
-  void invoke("resize_launcher", { height: 520 }).catch(() => undefined);
-}
-
-function closeGridMode(): void {
-  gridMode = false;
-  gridToggle.classList.remove("active");
-  gridPanel.classList.add("hidden");
-  queryInput.placeholder = "Buscar apps, comandos, archivos, web (w ...) o calculos";
-  queryInput.value = "";
-  currentQuery = "";
-  scheduleResize();
-}
-
-function filterGrid(query: string): void {
-  const q = query.trim().toLowerCase();
-  if (!q) {
-    gridFilteredApps = [...gridAllApps];
-  } else {
-    gridFilteredApps = gridAllApps.filter(a =>
-      a.name.toLowerCase().includes(q)
-    );
-  }
-  gridPage = 0;
-  renderGrid();
-}
-
-function renderGrid(): void {
-  const start = gridPage * GRID_APPS_PER_PAGE;
-  const pageApps = gridFilteredApps.slice(start, start + GRID_APPS_PER_PAGE);
-  const totalPages = Math.ceil(gridFilteredApps.length / GRID_APPS_PER_PAGE);
-
-  gridApps.innerHTML = pageApps.map(app => {
-    const initial = app.name.trim()[0]?.toUpperCase() ?? "?";
-    return `
-      <button class="grid-app-item" data-exec="${app.exec}" data-desktop="${app.desktop_path}" title="${app.name}">
-        <span class="grid-app-icon" id="gicon-${btoa(app.desktop_path || app.exec).slice(0,12)}">${initial}</span>
-        <span class="grid-app-name">${app.name}</span>
-      </button>
-    `;
-  }).join("");
-
-  // Paginación
-  gridPagination.innerHTML = totalPages > 1
-    ? Array.from({ length: totalPages }, (_, i) =>
-        `<button class="grid-dot ${i === gridPage ? "active" : ""}" data-page="${i}"></button>`
-      ).join("")
-    : "";
-
-  // Cargar iconos reales
-  pageApps.forEach(app => {
-    const path = app.desktop_path || app.exec;
-    if (!path) return;
-    const id = `gicon-${btoa(path).slice(0,12)}`;
-    const el = document.getElementById(id);
-    if (!el) return;
-    if (gridIconCache.has(path)) {
-      const src = gridIconCache.get(path)!;
-      if (src) el.innerHTML = `<img src="${src}" alt="" class="grid-app-icon-img"/>`;
-      return;
-    }
-    void invoke<string | null>("resolve_icon", { path })
-      .then(data => {
-        if (data) {
-          gridIconCache.set(path, data);
-          if (el) el.innerHTML = `<img src="${data}" alt="" class="grid-app-icon-img"/>`;
-        }
-      })
-      .catch(() => undefined);
-  });
-
-  // Click en app
-  gridApps.querySelectorAll<HTMLButtonElement>(".grid-app-item").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const exec = btn.dataset["exec"]!;
-      void invoke("execute", {
-        payload: { kind: "app", title: btn.title, primaryValue: exec, rawQuery: "" }
-      }).catch(() => undefined);
-      void invoke("hide_launcher").catch(() => undefined);
-    });
-  });
-
-  // Click en dots de paginación
-  gridPagination.querySelectorAll<HTMLButtonElement>(".grid-dot").forEach(dot => {
-    dot.addEventListener("click", () => {
-      gridPage = parseInt(dot.dataset["page"]!);
-      renderGrid();
-    });
-  });
-}
-
-// Init grid toggle button
-gridToggle.addEventListener("click", () => {
-  if (gridMode) {
-    closeGridMode();
-  } else {
-    if (gridAllApps.length === 0) {
-      void loadGridApps().then(openGridMode);
-    } else {
-      openGridMode();
-    }
-  }
-});
-
-// Precargar apps en segundo plano
-void loadGridApps();
-
-// Si estamos en grid mode y el usuario escribe, filtramos en el grid
-queryInput.addEventListener("input", () => {
-  if (gridMode) {
-    filterGrid(queryInput.value);
-  }
-}, true);
