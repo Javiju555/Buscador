@@ -1,6 +1,7 @@
 import "./style.css";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { tr } from "./i18n";
 
 type SearchResultKind = "app" | "command" | "file" | "web" | "calculation" | "info";
 
@@ -73,10 +74,10 @@ appRoot.innerHTML = `
         type="text"
         autocomplete="off"
         spellcheck="false"
-        placeholder="Buscar apps, comandos, archivos, web (w ...) o calculos"
+        placeholder="${tr('Buscar apps, comandos, archivos, web (w ...) o calculos')}"
       />
       <div class="pill-actions">
-        <button id="settings-toggle" class="settings-toggle" type="button" title="Ajustes">
+        <button id="settings-toggle" class="settings-toggle" type="button" title="${tr('Ajustes')}">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -85,19 +86,19 @@ appRoot.innerHTML = `
       </div>
     </section>
     <section id="settings-panel" class="settings-panel hidden">
-      <p class="settings-title">Ajustes</p>
-      <label class="settings-label" for="settings-roots">Carpetas raiz (; separado)</label>
+      <p class="settings-title">${tr('Ajustes')}</p>
+      <label class="settings-label" for="settings-roots">${tr('Carpetas raiz (; separado)')}</label>
       <input
         id="settings-roots"
         class="settings-input"
         type="text"
         autocomplete="off"
         spellcheck="false"
-        placeholder="D:\\Documentos;D:\\Proyectos"
+        placeholder="${tr('D:\\Documentos;D:\\Proyectos')}"
       />
-      <label class="settings-label" for="settings-max-files">Maximo de archivos</label>
+      <label class="settings-label" for="settings-max-files">${tr('Maximo de archivos')}</label>
       <input id="settings-max-files" class="settings-input" type="number" min="3000" max="100000" step="500" />
-      <label class="settings-label" for="settings-web-provider">Proveedor web (opcional)</label>
+      <label class="settings-label" for="settings-web-provider">${tr('Proveedor web (opcional)')}</label>
       <input
         id="settings-web-provider"
         class="settings-input"
@@ -106,22 +107,22 @@ appRoot.innerHTML = `
         spellcheck="false"
         placeholder="brave"
       />
-      <label class="settings-label" for="settings-web-api-key">API key web (opcional)</label>
+      <label class="settings-label" for="settings-web-api-key">${tr('API key web (opcional)')}</label>
       <input
         id="settings-web-api-key"
         class="settings-input"
         type="password"
         autocomplete="off"
         spellcheck="false"
-        placeholder="Si vacio: solo abrir busqueda en navegador"
+        placeholder="${tr('Si vacio: solo abrir busqueda en navegador')}"
       />
       <label class="settings-checkbox-row" for="settings-start-with-windows">
         <input id="settings-start-with-windows" type="checkbox" />
-        <span>Iniciar con Windows</span>
+        <span>${tr('Iniciar con Windows')}</span>
       </label>
       <div class="settings-actions">
-        <button id="settings-save" class="settings-button primary" type="button">Guardar y reindexar</button>
-        <button id="settings-reindex" class="settings-button" type="button">Reindexar</button>
+        <button id="settings-save" class="settings-button primary" type="button">${tr('Guardar y reindexar')}</button>
+        <button id="settings-reindex" class="settings-button" type="button">${tr('Reindexar')}</button>
       </div>
       <p id="settings-status" class="settings-status"></p>
     </section>
@@ -282,11 +283,11 @@ function initSettingsHandlers(): void {
 
   settingsReindexButton.addEventListener("click", async () => {
     try {
-      settingsStatus.textContent = "Reindexando...";
+      settingsStatus.textContent = tr('Reindexando...');
       await invoke("reindex_files");
-      settingsStatus.textContent = "Reindexado lanzado en segundo plano.";
+      settingsStatus.textContent = tr('Reindexado lanzado en segundo plano.');
     } catch (error) {
-      settingsStatus.textContent = `No se pudo reindexar: ${String(error)}`;
+      settingsStatus.textContent = `${tr("Could not reindex")}: ${String(error)}`;
     }
   });
 }
@@ -446,12 +447,12 @@ async function runSearch(query: string): Promise<void> {
         }
 
         progressivePhaseActive = false;
-        statusLine.textContent = `Error en busqueda: ${String(error)}`;
-      }
-    }, FULL_SEARCH_DELAY_MS);
+statusLine.textContent = `${tr("Error in search")}: ${String(error)}`;
+    }
+      }, FULL_SEARCH_DELAY_MS);
   } catch (error) {
     progressivePhaseActive = false;
-    statusLine.textContent = `Error en busqueda: ${String(error)}`;
+    statusLine.textContent = `${tr("Error in search")}: ${String(error)}`;
     dropdownPanel.classList.remove("hidden");
     scheduleResize();
   }
@@ -528,7 +529,7 @@ async function loadSettingsIntoUI(): Promise<void> {
     settingsStartWithWindowsInput.checked = settings.startWithWindows;
     settingsLoaded = true;
   } catch (error) {
-    settingsStatus.textContent = `No se pudieron cargar ajustes: ${String(error)}`;
+    settingsStatus.textContent = `${tr("Could not load settings")}: ${String(error)}`;
   }
 }
 
@@ -545,7 +546,7 @@ async function saveSettingsFromUI(): Promise<void> {
 
   try {
     settingsSaveButton.disabled = true;
-    settingsStatus.textContent = "Guardando y reindexando...";
+    settingsStatus.textContent = tr("Guardando y reindexando...");
     const saved = await invoke<LauncherSettings>("save_settings", {
       settings: { startWithWindows, roots, maxFiles, webProvider, webApiKey },
     });
@@ -555,10 +556,10 @@ async function saveSettingsFromUI(): Promise<void> {
     settingsWebProviderInput.value = saved.webProvider ?? "";
     settingsWebApiKeyInput.value = saved.webApiKey ?? "";
     settingsStartWithWindowsInput.checked = saved.startWithWindows;
-    settingsStatus.textContent = "Ajustes guardados y reindexado lanzado.";
+    settingsStatus.textContent = tr("Ajustes guardados y reindexado lanzado.");
     settingsLoaded = true;
   } catch (error) {
-    settingsStatus.textContent = `No se pudieron guardar ajustes: ${String(error)}`;
+    settingsStatus.textContent = `${tr("Could not save settings")}: ${String(error)}`;
   } finally {
     settingsSaveButton.disabled = false;
   }
@@ -605,7 +606,7 @@ function renderResults(): void {
 
     const subtitle = document.createElement("span");
     subtitle.className = "result-subtitle";
-    subtitle.textContent = result.subtitle;
+    subtitle.textContent = translateSubtitle(result.subtitle);
 
     texts.append(title, subtitle);
 
@@ -618,6 +619,11 @@ function renderResults(): void {
   }
 
   scheduleResize();
+}
+
+function translateSubtitle(subtitle: string): string {
+  const translated = tr(subtitle);
+  return translated !== subtitle ? translated : subtitle;
 }
 
 function selectResultIndex(nextIndex: number): void {
@@ -646,50 +652,50 @@ function getResultRow(index: number): HTMLButtonElement | undefined {
 
 function updateStatus(query: string): void {
   if (query.trim().length === 0) {
-    statusLine.textContent = "Escribe para buscar.";
+    statusLine.textContent = tr('Escribe para buscar.');
     return;
   }
 
   if (nonCalculationResults.length === 0 && !calculationResult) {
     if (progressivePhaseActive) {
-      statusLine.textContent = "Buscando tambien en archivos...";
+      statusLine.textContent = tr('Buscando tambien en archivos...');
     } else {
       statusLine.textContent = lastResponse.fileIndexing
-        ? "Sin coincidencias por ahora. El indexado de archivos sigue en progreso."
-        : "Sin coincidencias.";
+        ? tr('Sin coincidencias por ahora. El indexado de archivos sigue en progreso.')
+        : tr('Sin coincidencias.');
     }
     return;
   }
 
   if (nonCalculationResults.length === 0 && calculationResult) {
     statusLine.textContent = progressivePhaseActive
-      ? "Enter para copiar resultado. Buscando tambien en archivos..."
-      : "Enter para copiar el resultado de la calculadora.";
+      ? tr("Enter para copiar resultado. Buscando tambien en archivos...")
+      : tr("Enter para copiar el resultado de la calculadora.");
     return;
   }
 
   if (calculationResult && selectionMode === "calculation") {
     statusLine.textContent = progressivePhaseActive
-      ? `${nonCalculationResults.length} resultado(s). Enter copia el calculo; ↓ para abrir resultados.`
-      : `${nonCalculationResults.length} resultado(s). Enter copia el calculo; ↓ para abrir resultados.`;
+      ? `${nonCalculationResults.length}${tr(" result(s). Enter copies calculation; ↓ to open results.")}`
+      : `${nonCalculationResults.length}${tr(" result(s). Enter copies calculation; ↓ to open results.")}`;
     return;
   }
 
   const selected = nonCalculationResults[selectedIndex];
   if (selected && isMathAutocompleteResult(selected)) {
-    statusLine.textContent = "Tab autocompleta formula · Enter tambien aplica sugerencia.";
+    statusLine.textContent = tr("Tab autocompleta formula · Enter tambien aplica sugerencia.");
     return;
   }
 
   statusLine.textContent = progressivePhaseActive
-    ? `${nonCalculationResults.length} resultado(s). Afinando archivos...`
-    : `${nonCalculationResults.length} resultado(s). Enter para abrir.`;
+    ? `${nonCalculationResults.length}${tr(" result(s). Refining files...")}`
+    : `${nonCalculationResults.length}${tr(" result(s). Enter to open.")}`;
 }
 
 async function executeSelection(): Promise<void> {
   if (selectionMode === "calculation" && calculationResult) {
     await invoke("copy_text", { text: calculationResult.primaryValue });
-    statusLine.textContent = `Copiado: ${calculationResult.primaryValue}`;
+    statusLine.textContent = `${tr("Copied:")} ${calculationResult.primaryValue}`;
     return;
   }
 
@@ -715,7 +721,7 @@ async function executeSelection(): Promise<void> {
 
   if (calculationResult) {
     await invoke("copy_text", { text: calculationResult.primaryValue });
-    statusLine.textContent = `Copiado: ${calculationResult.primaryValue}`;
+    statusLine.textContent = `${tr("Copied:")} ${calculationResult.primaryValue}`;
   }
 }
 
