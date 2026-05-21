@@ -1,178 +1,69 @@
-# Buscador Launcher (Tauri)
+# Buscador
 
-Launcher estilo Spotlight para Windows/Linux: `Ctrl+Space`, UI tipo pill con dropdown flotante, glassmorphism y tema automatico light/dark segun tema del sistema.
+Spotlight-style launcher for Windows and Linux.
+
+Buscador searches apps, commands and files, opens results fast and includes inline calculator behavior for quick queries. It started as part of the Fenix desktop environment, but it is useful enough to stand on its own as a small launcher project.
+
+## Status
+
+- Daily-use app
+- Windows and Linux supported
+- GNOME and Wayland flows are regularly exercised
+- KDE should be possible, but it is not part of the regular validation loop yet
+- Some older GNOME-specific integration files are still kept in the repository for compatibility
+
+## Features
+
+- Global shortcut launcher
+- App search
+- Command search
+- File indexing and search
+- Inline calculator mode
+- Optional web search mode
+- Native icons
+- Autostart support on Windows and Linux
+
+## Query Modes
+
+- Default: mixed search
+- `>text`: commands
+- `/text`: files
+- `=expr`: calculator
+- `w text`: web search
 
 ## Stack
 
-- Frontend: Vite + TypeScript (`frontend/`)
-- Backend: Tauri v2 + Rust (`src-tauri/`)
-
-No necesitas implementar todo en Rust: la UI y experiencia van en web, y Rust queda para integracion nativa (hotkey global, busqueda rapida, ejecucion, sistema).
-
-## Funciones actuales
-
-- Hotkey global `Ctrl+Space` (fallback a `Ctrl+Shift+Space`).
-- Busqueda de apps de Start Menu (`vscode`, `microsoft vs code`).
-- Busqueda de comandos del `PATH`.
-- Busqueda de archivos indexados en segundo plano con reindex en caliente.
-- Calculadora integrada (`=3029*49` o deteccion automatica en modo mixto).
-- Ejecucion de app/comando/archivo y copiar resultado de calculadora.
-- Resultados progresivos (apps/comandos primero, archivos despues).
-- Iconos nativos por resultado (app/comando/archivo).
-- Ajustes integrados para roots y maximo de indexado (`Ctrl+,` o boton `⚙`).
-
-## Requisitos
-
-- Windows 10/11 o Linux moderno (GNOME/KDE/Xfce con `xdg-open`)
-- Node.js 20+
-- Rust stable + cargo
-- Tauri CLI (`cargo tauri --version`)
-
-## Ejecutar en desarrollo
-
-```powershell
-cargo tauri dev --no-watch
-```
-
-## Guía Linux (Zorin OS)
-
-Si vas a usar Buscador en Zorin OS, revisa la guía persistente:
-
-- `docs/ZORIN_OS_SETUP.md`
+- Frontend: Vite + TypeScript + Bun
+- Backend: Tauri v2 + Rust
 
 ## Build
 
-```powershell
-cargo tauri build
-```
+Requirements:
 
-Artefactos release en Windows:
+- Rust toolchain
+- Bun
+- Tauri prerequisites for your platform
 
-- `src-tauri/target/release/bundle/nsis/Buscador_0.1.3_x64-setup.exe` (instalador recomendado)
-- `src-tauri/target/release/bundle/msi/Buscador_0.1.3_x64_en-US.msi`
+Development:
 
-## Build portable (ZIP)
-
-1. Genera release:
-
-```powershell
-cargo tauri build
-```
-
-2. Empaqueta portable:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\make-portable.ps1 -Version 0.1.3
-```
-
-Salida:
-
-- `dist/portable/Buscador_0.1.3_x64_portable.zip`
-
-La edición portable incluye `Buscador.exe` y no modifica el inicio automático por sí sola.
-
-## Probar en otro PC (EXE final)
-
-1. Compila en tu PC de desarrollo: `cargo tauri build`
-2. Copia al otro PC el instalador NSIS generado.
-3. Instala normalmente (evita copiar el `.exe` suelto manualmente).
-
-### Autoarranque en Windows (opcional y legitimo)
-
-Usa la clave `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run` para iniciar con tu sesion de usuario:
-
-```powershell
-$app = "$env:LOCALAPPDATA\\Programs\\Buscador\\Buscador.exe"
-New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Buscador" -Value ('"' + $app + '"') -PropertyType String -Force
-```
-
-Quitar autoarranque:
-
-```powershell
-Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Buscador" -ErrorAction SilentlyContinue
-```
-
-### Autoarranque automático en instalación estándar
-
-En Windows, cuando la app se ejecuta por primera vez desde una instalación estándar en `AppData\\Local\\Programs\\Buscador`, se registra automáticamente en `HKCU\\...\\Run` una sola vez.
-
-- Esto aplica a instalación NSIS/MSI.
-- No aplica a la edición portable (para evitar efectos laterales en un binario transportable).
-
-Nota: evita tecnicas de ocultamiento o instalacion disfrazada de componentes de Windows. Para distribucion limpia, usa instalador firmado y ubicacion estandar de programa.
-
-## Ajustes de indexado
-
-Ahora se pueden configurar desde UI:
-
-- Boton `⚙` en la pill (o `Ctrl+,`)
-- `Carpetas raiz` separadas por `;`
-- `Maximo de archivos` (`3000..100000`)
-- `Guardar y reindexar`
-
-Tambien se siguen respetando estas variables si quieres forzarlas externamente:
-
-- `BUSCADOR_ROOTS`
-- `BUSCADOR_MAX_FILES`
-
-Ejemplo por entorno:
-
-```powershell
-$env:BUSCADOR_ROOTS="D:\Trabajo;D:\Proyectos;C:\Users\TuUsuario\Desktop"
-$env:BUSCADOR_MAX_FILES="12000"
+```bash
+cd src-tauri
 cargo tauri dev --no-watch
 ```
 
-En Linux, `BUSCADOR_ROOTS` usa `:` como separador.
+Release build:
 
-## Busqueda web (opcional, sin historial)
-
-El modo web usa el prefijo `w` y mantiene UX minimalista:
-
-- `w clima madrid`
-- Muestra hasta 5 resultados web relevantes (si hay API configurada)
-- Siempre agrega una fila final: **Abrir busqueda en navegador**
-- `Enter` abre la URL seleccionada en el navegador predeterminado
-
-Sin API key, Buscador sigue funcionando y muestra solo la fila final de abrir busqueda.
-
-Variables de entorno:
-
-- `BUSCADOR_WEB_PROVIDER` (`brave` o vacio)
-- `BUSCADOR_WEB_API_KEY` (clave del proveedor)
-
-Ejemplo PowerShell:
-
-```powershell
-$env:BUSCADOR_WEB_PROVIDER="brave"
-$env:BUSCADOR_WEB_API_KEY="tu_api_key"
-cargo tauri dev --no-watch
+```bash
+cd src-tauri
+cargo tauri build
 ```
 
-Nota para open source: documenta que la API key es opcional y no debe subirse al repositorio.
+## Notes
 
-## Atajos y prefijos
+- On Linux, the Tauri hooks also support Bun installed at `$HOME/.bun/bin/bun`.
+- The repository still contains a legacy GNOME extension and setup notes because some users still rely on that path.
+- Web search is optional and works without an API key by falling back to opening the browser search.
 
-- `Ctrl+Space`: abrir/cerrar launcher
-- `Ctrl+,`: abrir/cerrar ajustes
-- `Enter`: ejecutar seleccion
-- `Esc`: ocultar launcher
-- `>texto`: priorizar comandos
-- `/texto`: solo archivos
-- `=expresion`: solo calculadora
-- `w texto`: resultados web (top + abrir busqueda)
+## License
 
-## Alias de rutas rápidas
-
-Windows:
-
-- Variables `%...%` (ej: `%appdata%`, `%localappdata%`, `%temp%`)
-- Alias directos: `appdata`, `localappdata`, `temp`, `tmp`, `startup`, `commonstartup`, `userprofile`, `programdata`, `windir`
-
-Linux:
-
-- Alias directos: `home`, `~`, `desktop`, `documents`, `downloads`, `config`, `data`, `cache`, `temp`, `tmp`
-
-## Nota sobre version anterior
-
-La version WPF anterior sigue en `src/BuscadorLauncher` como referencia visual, pero la ruta activa ahora es Tauri.
+[AGPL-3.0-only](LICENSE)

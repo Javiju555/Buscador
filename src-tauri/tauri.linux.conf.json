@@ -1,0 +1,12 @@
+{
+  "build": {
+    "beforeDevCommand": {
+      "script": "env PATH=\"$HOME/.bun/bin:$PATH\" bun run dev --host --port 1423",
+      "cwd": "../frontend"
+    },
+    "beforeBuildCommand": {
+      "script": "env PATH=\"$HOME/.bun/bin:$PATH\" bun run build",
+      "cwd": "../frontend"
+    }
+  }
+}
