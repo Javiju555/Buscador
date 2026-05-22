@@ -58,10 +58,10 @@ pub fn lazy_init_icon_index() {
     let _ = INDEX_INITIALIZED.get_or_init(|| {
         let is_init = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let is_init_clone = is_init.clone();
-        
+
         std::thread::spawn(move || {
             let mut index: HashMap<String, PathBuf> = HashMap::new();
-            
+
             for root in linux_icon_roots() {
                 for entry in WalkDir::new(root)
                     .follow_links(false)
@@ -73,48 +73,48 @@ pub fn lazy_init_icon_index() {
                     if !is_supported_icon_file(path) {
                         continue;
                     }
-                    
+
                     if let Some(stem) = path.file_stem().and_then(OsStr::to_str) {
                         let stem_lower = stem.to_lowercase();
                         let new_score = rank_icon_path(path);
-                        
+
                         let should_insert = if let Some(existing_path) = index.get(&stem_lower) {
                             let existing_score = rank_icon_path(existing_path);
                             new_score > existing_score
                         } else {
                             true
                         };
-                        
+
                         if should_insert {
                             index.insert(stem_lower, path.to_path_buf());
                         }
                     }
-                    
+
                     if let Some(file_name) = path.file_name().and_then(OsStr::to_str) {
                         let name_lower = file_name.to_lowercase();
                         let new_score = rank_icon_path(path);
-                        
+
                         let should_insert = if let Some(existing_path) = index.get(&name_lower) {
                             let existing_score = rank_icon_path(existing_path);
                             new_score > existing_score
                         } else {
                             true
                         };
-                        
+
                         if should_insert {
                             index.insert(name_lower, path.to_path_buf());
                         }
                     }
                 }
             }
-            
+
             let index_store = LAUNCHER_ICON_INDEX.get_or_init(|| Mutex::new(HashMap::new()));
             if let Ok(mut guard) = index_store.lock() {
                 *guard = index;
             }
             is_init_clone.store(true, std::sync::atomic::Ordering::Relaxed);
         });
-        
+
         is_init
     });
 }
@@ -258,9 +258,9 @@ fn resolve_explicit_icon_path(icon: &str, desktop_dir: Option<&Path>) -> Option<
 #[cfg(target_os = "linux")]
 fn search_themed_icon(icon: &str) -> Option<PathBuf> {
     lazy_init_icon_index();
-    
+
     let trimmed = icon.trim().to_lowercase();
-    
+
     // 1. If background index has finished, use it!
     if let Some(is_init) = INDEX_INITIALIZED.get() {
         if is_init.load(std::sync::atomic::Ordering::Relaxed) {
@@ -273,7 +273,7 @@ fn search_themed_icon(icon: &str) -> Option<PathBuf> {
             }
         }
     }
-    
+
     // 2. Fast direct lookups
     for ext in &["png", "svg", "jpg", "jpeg"] {
         // Flat pixmaps
@@ -281,30 +281,32 @@ fn search_themed_icon(icon: &str) -> Option<PathBuf> {
         if pixmap_path.exists() {
             return Some(pixmap_path);
         }
-        
+
         // Hicolor scalable apps
-        let hicolor_svg = PathBuf::from(format!("/usr/share/icons/hicolor/scalable/apps/{icon}.{ext}"));
+        let hicolor_svg = PathBuf::from(format!(
+            "/usr/share/icons/hicolor/scalable/apps/{icon}.{ext}"
+        ));
         if hicolor_svg.exists() {
             return Some(hicolor_svg);
         }
-        
+
         // Hicolor 48x48 apps
         let hicolor_48 = PathBuf::from(format!("/usr/share/icons/hicolor/48x48/apps/{icon}.{ext}"));
         if hicolor_48.exists() {
             return Some(hicolor_48);
         }
     }
-    
+
     // 3. Fallback: walk only flat /usr/share/pixmaps and standard hicolor (fast, limited)
     let wanted_names = wanted_icon_names(icon);
-    
+
     let pixmaps_root = PathBuf::from("/usr/share/pixmaps");
     if pixmaps_root.exists() {
         if let Some(found) = find_icon_in_root(&pixmaps_root, &wanted_names) {
             return Some(found);
         }
     }
-    
+
     let hicolor_root = PathBuf::from("/usr/share/icons/hicolor");
     if hicolor_root.exists() {
         if let Some(found) = find_icon_in_root(&hicolor_root, &wanted_names) {

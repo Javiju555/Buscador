@@ -80,7 +80,10 @@ fn apply_freq_bonus(freq_store: &Arc<Mutex<FreqStore>>, response: &mut SearchRes
     let Ok(store) = freq_store.lock() else { return };
     let mut changed = false;
     for result in &mut response.results {
-        if matches!(result.kind, SearchResultKind::Calculation | SearchResultKind::Info) {
+        if matches!(
+            result.kind,
+            SearchResultKind::Calculation | SearchResultKind::Info
+        ) {
             continue;
         }
         let bonus = store.score_bonus(&result.primary_value);
@@ -94,7 +97,12 @@ fn apply_freq_bonus(freq_store: &Arc<Mutex<FreqStore>>, response: &mut SearchRes
         let mut regular: Vec<_> = response
             .results
             .drain(..)
-            .filter(|r| !matches!(r.kind, SearchResultKind::Calculation | SearchResultKind::Info))
+            .filter(|r| {
+                !matches!(
+                    r.kind,
+                    SearchResultKind::Calculation | SearchResultKind::Info
+                )
+            })
             .collect();
         let special: Vec<_> = response.results.drain(..).collect();
         regular.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.title.cmp(&b.title)));
@@ -126,7 +134,10 @@ fn reindex_files(state: tauri::State<'_, AppState>) {
 
 #[tauri::command]
 fn execute(payload: ExecutePayload, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    if matches!(payload.kind, SearchResultKind::App | SearchResultKind::Command | SearchResultKind::File) {
+    if matches!(
+        payload.kind,
+        SearchResultKind::App | SearchResultKind::Command | SearchResultKind::File
+    ) {
         if let Ok(mut store) = state.freq_store.lock() {
             store.increment(&payload.primary_value);
         }
@@ -163,7 +174,11 @@ fn get_apps(state: tauri::State<'_, AppState>) -> Vec<GridAppEntry> {
         .search_service
         .list_apps()
         .into_iter()
-        .map(|(name, exec, desktop_path)| GridAppEntry { name, exec, desktop_path })
+        .map(|(name, exec, desktop_path)| GridAppEntry {
+            name,
+            exec,
+            desktop_path,
+        })
         .collect()
 }
 
@@ -281,6 +296,13 @@ fn execute_app(target: &str) -> Result<()> {
         return open_path(trimmed);
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        if trimmed.ends_with(".desktop") {
+            return launch_desktop_entry(trimmed);
+        }
+    }
+
     if PathBuf::from(trimmed).exists() {
         return open_path(trimmed);
     }
@@ -306,6 +328,79 @@ fn execute_app(target: &str) -> Result<()> {
 
     #[cfg(not(target_os = "linux"))]
     run_command(command, args)
+}
+
+#[cfg(target_os = "linux")]
+fn launch_desktop_entry(desktop_path: &str) -> Result<()> {
+    let text =
+        std::fs::read_to_string(desktop_path).context("No se pudo leer el archivo .desktop")?;
+
+    let mut in_desktop_entry = false;
+    let mut exec_line: Option<String> = None;
+    let mut terminal = false;
+
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            in_desktop_entry = line.eq_ignore_ascii_case("[Desktop Entry]");
+            continue;
+        }
+        if !in_desktop_entry {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim();
+            let value = value.trim();
+            if key.eq_ignore_ascii_case("Exec") && !value.is_empty() {
+                exec_line = Some(value.to_string());
+            }
+            if key.eq_ignore_ascii_case("Terminal") {
+                terminal = value.eq_ignore_ascii_case("true") || value == "1";
+            }
+        }
+    }
+
+    let raw_exec =
+        exec_line.ok_or_else(|| anyhow::anyhow!("No se encontro Exec en {desktop_path}"))?;
+
+    let mut cleaned = raw_exec.to_string();
+    for token in [
+        "%f", "%F", "%u", "%U", "%i", "%c", "%k", "%d", "%D", "%n", "%N", "%v", "%m",
+    ] {
+        cleaned = cleaned.replace(token, "");
+    }
+    let cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if cleaned.is_empty() {
+        bail!("Exec vacio en {desktop_path}");
+    }
+
+    let parts = shlex::split(&cleaned).unwrap_or_else(|| vec![cleaned.clone()]);
+    let (command, args) = parts
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("No se pudo parsear Exec de {desktop_path}"))?;
+
+    let mut child = if terminal {
+        Command::new("xdg-terminal-exec")
+            .arg("-e")
+            .arg(command)
+            .args(args)
+            .spawn()
+            .or_else(|_| Command::new(command).args(args).spawn())
+            .context("No se pudo lanzar la app de terminal")?
+    } else {
+        Command::new(command)
+            .args(args)
+            .spawn()
+            .with_context(|| format!("No se pudo lanzar {command}"))?
+    };
+
+    hyprland_focus_pid(child.id());
+    let _ = child.try_wait();
+    Ok(())
 }
 
 /// Foco automático tras lanzar una app en Hyprland.
