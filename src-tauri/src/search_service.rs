@@ -826,6 +826,109 @@ fn read_desktop_name(path: &Path) -> Option<String> {
     None
 }
 
+fn make_path_result(path: &Path, score: i32) -> SearchResult {
+    let primary_value = path.to_string_lossy().to_string();
+    let filename = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| primary_value.clone());
+
+    #[cfg(target_os = "linux")]
+    if path.extension().map_or(false, |e| e == "desktop") {
+        let title = read_desktop_name(path).unwrap_or_else(|| filename.clone());
+        return SearchResult {
+            kind: SearchResultKind::App,
+            title,
+            subtitle: primary_value.clone(),
+            primary_value,
+            score,
+        };
+    }
+
+    SearchResult {
+        kind: SearchResultKind::File,
+        title: filename,
+        subtitle: primary_value.clone(),
+        primary_value,
+        score,
+    }
+}
+
+fn build_path_results(raw: &str, limit: usize) -> Vec<SearchResult> {
+    if limit == 0 {
+        return vec![];
+    }
+
+    let raw = raw.trim();
+    let ends_with_sep = raw.ends_with('/') || raw.ends_with('\\');
+    let path = Path::new(raw);
+
+    let (list_dir, stem): (&Path, &str) = if ends_with_sep {
+        (path, "")
+    } else {
+        let stem = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let parent = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => return vec![],
+        };
+        (parent, stem)
+    };
+
+    let stem_lower = stem.to_lowercase();
+    let mut results: Vec<SearchResult> = Vec::new();
+    let mut exact_path = None;
+
+    if !ends_with_sep && path.exists() {
+        results.push(make_path_result(path, 2000));
+        exact_path = Some(path.to_path_buf());
+    }
+
+    if !list_dir.is_dir() {
+        return results;
+    }
+
+    let read = match std::fs::read_dir(list_dir) {
+        Ok(r) => r,
+        Err(_) => return results,
+    };
+
+    let mut dirs: Vec<SearchResult> = Vec::new();
+    let mut files: Vec<SearchResult> = Vec::new();
+    for entry in read.flatten().take(512) {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        if name_str.starts_with('.') && !stem.starts_with('.') {
+            continue;
+        }
+        if !stem_lower.is_empty() && !name_str.to_lowercase().starts_with(&stem_lower) {
+            continue;
+        }
+
+        let entry_path = entry.path();
+        if exact_path.as_deref() == Some(entry_path.as_path()) {
+            continue;
+        }
+
+        let result = make_path_result(&entry_path, 1500);
+        if entry_path.is_dir() {
+            dirs.push(result);
+        } else {
+            files.push(result);
+        }
+    }
+
+    dirs.sort_by(|a, b| a.title.cmp(&b.title));
+    files.sort_by(|a, b| a.title.cmp(&b.title));
+
+    let remaining = limit.saturating_sub(results.len());
+    results.extend(dirs.into_iter().chain(files).take(remaining));
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -925,5 +1028,126 @@ mod tests {
         .unwrap();
         assert_eq!(read_desktop_name(&p), None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- build_path_results ---
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn path_results_nonexistent_parent_empty() {
+        let results = build_path_results("/zzz_buscador_no_parent/file", 10);
+        assert!(results.is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn path_results_exact_match_at_top() {
+        // /tmp always exists
+        let results = build_path_results("/tmp", 5);
+        assert!(!results.is_empty());
+        assert_eq!(results[0].score, 2000);
+        assert_eq!(results[0].primary_value, "/tmp");
+        assert_eq!(results[0].kind, SearchResultKind::File);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn path_results_prefix_filters_siblings() {
+        let base = std::env::temp_dir().join("buscador_test_pr1");
+        std::fs::create_dir_all(base.join("alpha")).unwrap();
+        std::fs::create_dir_all(base.join("almond")).unwrap();
+        std::fs::create_dir_all(base.join("beta")).unwrap();
+
+        let query = format!("{}/al", base.to_string_lossy());
+        let results = build_path_results(&query, 10);
+        let names: Vec<&str> = results.iter().map(|r| r.title.as_str()).collect();
+        assert!(names.contains(&"alpha"), "alpha missing from {:?}", names);
+        assert!(
+            names.contains(&"almond"),
+            "almond missing from {:?}",
+            names
+        );
+        assert!(!names.contains(&"beta"), "beta should be filtered out");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn path_results_dirs_before_files() {
+        let base = std::env::temp_dir().join("buscador_test_pr2");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::create_dir_all(base.join("zdir")).unwrap();
+        std::fs::write(base.join("afile.txt"), "").unwrap();
+
+        let query = format!("{}/", base.to_string_lossy());
+        let results = build_path_results(&query, 10);
+        // zdir (dir) must come before afile.txt (file) even though 'z' > 'a'
+        let dir_pos = results.iter().position(|r| r.title == "zdir").unwrap();
+        let file_pos = results
+            .iter()
+            .position(|r| r.title == "afile.txt")
+            .unwrap();
+        assert!(dir_pos < file_pos, "directory should appear before file");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn path_results_hidden_excluded_when_stem_visible() {
+        let base = std::env::temp_dir().join("buscador_test_pr3");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join(".hidden"), "").unwrap();
+        std::fs::write(base.join("visible.txt"), "").unwrap();
+
+        let query = format!("{}/", base.to_string_lossy());
+        let results = build_path_results(&query, 10);
+        let names: Vec<&str> = results.iter().map(|r| r.title.as_str()).collect();
+        assert!(names.contains(&"visible.txt"));
+        assert!(!names.contains(&".hidden"), "hidden file should be excluded");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn path_results_hidden_included_when_stem_hidden() {
+        let base = std::env::temp_dir().join("buscador_test_pr4");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join(".config"), "").unwrap();
+        std::fs::write(base.join("visible.txt"), "").unwrap();
+
+        let query = format!("{}/.con", base.to_string_lossy());
+        let results = build_path_results(&query, 10);
+        let names: Vec<&str> = results.iter().map(|r| r.title.as_str()).collect();
+        assert!(
+            names.contains(&".config"),
+            ".config should appear when stem starts with '.'"
+        );
+        assert!(!names.contains(&"visible.txt"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn path_results_desktop_file_kind_app() {
+        let base = std::env::temp_dir().join("buscador_test_pr5");
+        std::fs::create_dir_all(&base).unwrap();
+        let dp = base.join("myapp.desktop");
+        std::fs::write(&dp, "[Desktop Entry]\nName=My App\nExec=myapp\n").unwrap();
+
+        let query = dp.to_string_lossy().to_string();
+        let results = build_path_results(&query, 5);
+        let app = results
+            .iter()
+            .find(|r| r.primary_value == dp.to_string_lossy().as_ref());
+        assert!(app.is_some(), "desktop file should appear in results");
+        let app = app.unwrap();
+        assert_eq!(app.kind, SearchResultKind::App);
+        assert_eq!(app.title, "My App");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
