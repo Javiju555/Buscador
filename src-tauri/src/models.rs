@@ -50,6 +50,11 @@ pub struct LauncherSettings {
     pub web_api_key: String,
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Carpetas que el usuario quiere indexar SEMÁNTICAMENTE (solo nombres/rutas,
+    /// nunca contenido). Vacío por defecto: el usuario opta-in desde Ajustes.
+    /// Agnóstico al SO: acepta rutas de Windows y Linux.
+    #[serde(default)]
+    pub semantic_roots: Vec<String>,
 }
 
 fn default_theme() -> String {

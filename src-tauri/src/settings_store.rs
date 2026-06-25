@@ -123,6 +123,8 @@ fn default_settings() -> LauncherSettings {
         web_provider: String::new(),
         web_api_key: String::new(),
         theme: "system".to_string(),
+        // Vacío por defecto: el usuario opta-in a indexar carpetas desde Ajustes.
+        semantic_roots: vec![],
     }
 }
 

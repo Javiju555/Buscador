@@ -1,2 +1,9 @@
 dist/
 .claude/
+docs/superpowers/
+frontend/dist/
+frontend/node_modules/
+target/
+src-tauri/target/
+models/
+*.db

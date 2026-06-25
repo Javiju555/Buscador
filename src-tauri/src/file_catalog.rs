@@ -205,6 +205,7 @@ fn normalize_settings(settings: LauncherSettings) -> LauncherSettings {
         web_provider: settings.web_provider.trim().to_ascii_lowercase(),
         web_api_key: settings.web_api_key.trim().to_string(),
         theme: settings.theme,
+        semantic_roots: normalize_roots(settings.semantic_roots),
     }
 }
 
@@ -275,6 +276,7 @@ fn default_settings() -> LauncherSettings {
         web_provider: String::new(),
         web_api_key: String::new(),
         theme: "system".to_string(),
+        semantic_roots: vec![],
     }
 }
 

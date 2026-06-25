@@ -24,6 +24,7 @@ interface LauncherSettings {
   maxFiles: number;
   webProvider: string;
   webApiKey: string;
+  semanticRoots: string[];
 }
 
 const COLLAPSED_HEIGHT = 92;
@@ -98,6 +99,15 @@ appRoot.innerHTML = `
       />
       <label class="settings-label" for="settings-max-files">${tr('Maximo de archivos')}</label>
       <input id="settings-max-files" class="settings-input" type="number" min="3000" max="100000" step="500" />
+      <label class="settings-label" for="settings-semantic-roots">${tr('Carpetas para busqueda semantica (; separado)')}</label>
+      <input
+        id="settings-semantic-roots"
+        class="settings-input"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="${tr('~/Documentos;~/Notas')}"
+      />
       <label class="settings-label" for="settings-web-provider">${tr('Proveedor web (opcional)')}</label>
       <input
         id="settings-web-provider"
@@ -148,6 +158,7 @@ const resultsList = document.querySelector<HTMLElement>("#results-list")!;
 const settingsToggle = document.querySelector<HTMLButtonElement>("#settings-toggle")!;
 const settingsPanel = document.querySelector<HTMLElement>("#settings-panel")!;
 const settingsRootsInput = document.querySelector<HTMLInputElement>("#settings-roots")!;
+const settingsSemanticRootsInput = document.querySelector<HTMLInputElement>("#settings-semantic-roots")!;
 const settingsMaxFilesInput = document.querySelector<HTMLInputElement>("#settings-max-files")!;
 const settingsWebProviderInput = document.querySelector<HTMLInputElement>("#settings-web-provider")!;
 const settingsWebApiKeyInput = document.querySelector<HTMLInputElement>("#settings-web-api-key")!;
@@ -523,6 +534,7 @@ async function loadSettingsIntoUI(): Promise<void> {
   try {
     const settings = await invoke<LauncherSettings>("get_settings");
     settingsRootsInput.value = settings.roots.join(";");
+    settingsSemanticRootsInput.value = (settings.semanticRoots ?? []).join(";");
     settingsMaxFilesInput.value = String(settings.maxFiles);
     settingsWebProviderInput.value = settings.webProvider ?? "";
     settingsWebApiKeyInput.value = settings.webApiKey ?? "";
@@ -538,6 +550,10 @@ async function saveSettingsFromUI(): Promise<void> {
     .split(";")
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
+  const semanticRoots = settingsSemanticRootsInput.value
+    .split(";")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
   const parsedMax = Number.parseInt(settingsMaxFilesInput.value, 10);
   const maxFiles = Number.isFinite(parsedMax) ? parsedMax : 25_000;
   const webProvider = settingsWebProviderInput.value.trim();
@@ -548,10 +564,11 @@ async function saveSettingsFromUI(): Promise<void> {
     settingsSaveButton.disabled = true;
     settingsStatus.textContent = tr("Guardando y reindexando...");
     const saved = await invoke<LauncherSettings>("save_settings", {
-      settings: { startWithWindows, roots, maxFiles, webProvider, webApiKey },
+      settings: { startWithWindows, roots, maxFiles, webProvider, webApiKey, semanticRoots },
     });
 
     settingsRootsInput.value = saved.roots.join(";");
+    settingsSemanticRootsInput.value = (saved.semanticRoots ?? []).join(";");
     settingsMaxFilesInput.value = String(saved.maxFiles);
     settingsWebProviderInput.value = saved.webProvider ?? "";
     settingsWebApiKeyInput.value = saved.webApiKey ?? "";

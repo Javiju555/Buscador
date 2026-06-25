@@ -14,8 +14,10 @@ ICON_PATH="${APPLICATIONS_DIR}/icons/buscador.png"
 
 if [[ -f "${HOME}/.zshrc" ]]; then
   # Match the user's interactive Arch environment so bun/cargo are available.
+  set +e
   set +u
   source "${HOME}/.zshrc"
+  set -e
   set -u
 fi
 

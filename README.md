@@ -18,6 +18,8 @@ Buscador searches apps, commands and files, opens results fast and includes inli
 - App search
 - Command search
 - File indexing and search
+- Filesystem path navigation with autocomplete
+- Semantic search with local ONNX embeddings
 - Inline calculator mode
 - Optional web search mode
 - Native icons
@@ -30,6 +32,7 @@ Buscador searches apps, commands and files, opens results fast and includes inli
 - `/text`: files
 - `=expr`: calculator
 - `w text`: web search
+- Absolute path (e.g. `/home/user/docs` or `C:\Users\`): filesystem navigation with prefix autocomplete
 
 ## Stack
 
@@ -57,6 +60,50 @@ Release build:
 cd src-tauri
 cargo tauri build
 ```
+
+## Local Embeddings
+
+Buscador can load the IBM Granite multilingual embedding model locally to power semantic matching and hybrid fuzzy + vector ranking.
+
+- Preferred model: `onnx/model_quint8_avx2.onnx` from `ibm-granite/granite-embedding-97m-multilingual-r2`
+- Fallback model: `onnx/model.onnx`
+- Tokenizer: `tokenizer.json`
+- Embedding size: 384 dimensions
+
+The loader prefers the 8-bit model automatically because it is much smaller, and falls back to the 32-bit model if that is the only file present.
+
+Expected install directory:
+
+- Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/buscador/models/granite-embedding-97m`
+- Windows: `%LOCALAPPDATA%\buscador\models\granite-embedding-97m`
+
+Install helpers:
+
+```bash
+./scripts/fetch-embedding-model.sh
+./scripts/fetch-embedding-model.sh model.onnx
+```
+
+```powershell
+./scripts/fetch-embedding-model.ps1
+./scripts/fetch-embedding-model.ps1 -ModelFile model.onnx
+```
+
+Optional override:
+
+```bash
+export BUSCADOR_EMBEDDING_MODEL=model.onnx
+```
+
+```powershell
+$env:BUSCADOR_EMBEDDING_MODEL = "model_quint8_avx2.onnx"
+```
+
+Notes:
+
+- `model_quint8_avx2.onnx` is about 98 MB in the upstream Hugging Face repository, while `model.onnx` is about 390 MB.
+- The `avx2` variant is the default because it cuts download size and startup footprint significantly on modern CPUs.
+- If a machine does not support that variant, keep `tokenizer.json` and add `model.onnx`; Buscador will fall back to it automatically.
 
 ## Notes
 

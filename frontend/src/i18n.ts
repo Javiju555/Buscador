@@ -5,6 +5,8 @@ const translations: Record<string, Record<string, string>> = {
         "Carpetas raiz (; separado)": "Root folders (; separated)",
         "D:\\Documentos;D:\\Proyectos": "C:\\Users\\You\\Documents",
         "Maximo de archivos": "Max files",
+        "Carpetas para busqueda semantica (; separado)": "Folders for semantic search (; separated)",
+        "~/Documentos;~/Notas": "~/Documents;~/Notes",
         "Proveedor web (opcional)": "Web provider (optional)",
         "API key web (opcional)": "Web API key (optional)",
         "Si vacio: solo abrir busqueda en navegador": "If empty: just open search in browser",

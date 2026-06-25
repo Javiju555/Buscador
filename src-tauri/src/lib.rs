@@ -1,13 +1,17 @@
 mod app_catalog;
 mod calculator;
 mod command_catalog;
+mod embedding_engine;
 mod file_catalog;
 mod freq_store;
+mod http_server;
 mod icon;
+mod indexer;
 mod models;
 mod search_service;
 mod settings_store;
 mod text_matcher;
+mod vector_store;
 mod web_search;
 
 use std::collections::HashMap;
@@ -16,6 +20,13 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+fn dirs() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|d| d.join("buscador"))
+}
+
+use embedding_engine::EmbeddingEngine;
+use vector_store::VectorStore;
 
 use anyhow::{bail, Context, Result};
 use arboard::Clipboard;
@@ -48,6 +59,14 @@ struct AppState {
     main_window_crashed: AtomicBool,
     last_show_millis: AtomicU64,
     focused_since_show: AtomicBool,
+    /// Motor de embeddings (Granite 97M ONNX). None si el modelo no está disponible.
+    embedding_engine: Arc<Mutex<Option<EmbeddingEngine>>>,
+    /// Almacén de vectores para búsqueda semántica.
+    vector_store: Arc<Mutex<VectorStore>>,
+    /// Shutdown sender para el HTTP server.
+    http_shutdown: Mutex<Option<tokio::sync::mpsc::Sender<()>>>,
+    /// Puerto del HTTP server.
+    http_port: u16,
 }
 
 #[tauri::command]
@@ -56,9 +75,34 @@ fn search(
     limit: Option<usize>,
     state: tauri::State<'_, AppState>,
 ) -> SearchResponse {
-    let mut response = state
-        .search_service
-        .search(&query, limit.unwrap_or(10).min(24));
+    let limit = limit.unwrap_or(10).min(24);
+    let mut response = state.search_service.search(&query, limit);
+
+    // Las "funciones especiales" (cálculo, web, info) son independientes y tienen
+    // prioridad: si la respuesta ya trae un cálculo, NO corremos vector search
+    // (evita que los resultados semánticos pisen o tapen el resultado matemático).
+    let has_special = response.results.iter().any(|r| {
+        matches!(
+            r.kind,
+            SearchResultKind::Calculation | SearchResultKind::Web
+        )
+    });
+
+    // Mezclar resultados semánticos si el motor está disponible y no hay función especial
+    if !has_special {
+        if let Ok(mut engine_guard) = state.embedding_engine.lock() {
+            if let Some(ref mut engine) = *engine_guard {
+                if let Ok(store_guard) = state.vector_store.lock() {
+                    if let Ok(query_emb) = engine.embed(&query) {
+                        if let Ok(semantic_results) = store_guard.search(&query_emb, limit, None) {
+                            merge_semantic_results(&mut response, &semantic_results);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     apply_freq_bonus(&state.freq_store, &mut response);
     response
 }
@@ -111,6 +155,251 @@ fn apply_freq_bonus(freq_store: &Arc<Mutex<FreqStore>>, response: &mut SearchRes
     }
 }
 
+/// Mezcla resultados semánticos en la respuesta existente.
+///
+/// Los resultados semánticos se fusionan con los fuzzy:
+/// - Si un item ya existe (por primary_value), se actualiza su score con el máximo
+/// - Si es nuevo, se añade con un score basado en la similaridad
+fn merge_semantic_results(
+    response: &mut SearchResponse,
+    semantic_results: &[vector_store::SearchResult],
+) {
+    use models::{SearchResult, SearchResultKind};
+
+    // Separar las "funciones especiales" (cálculo, info/hints) ANTES de mezclar.
+    // Son independientes del vector search y deben mantenerse al final intactas,
+    // sin que el sort por score las pise ni las empuje fuera del límite.
+    let special: Vec<SearchResult> = response
+        .results
+        .iter()
+        .filter(|r| {
+            matches!(
+                r.kind,
+                SearchResultKind::Calculation | SearchResultKind::Info
+            )
+        })
+        .cloned()
+        .collect();
+    response.results.retain(|r| {
+        !matches!(
+            r.kind,
+            SearchResultKind::Calculation | SearchResultKind::Info
+        )
+    });
+
+    for sr in semantic_results {
+        // Mapear similaridad a score entero (0..600)
+        let semantic_score = (sr.similarity * 600.0) as i32;
+
+        // Solo incluir si la similaridad es razonable (> 0.3)
+        if semantic_score < 180 {
+            continue;
+        }
+
+        // Buscar si ya existe en la respuesta
+        let existing = response
+            .results
+            .iter_mut()
+            .find(|r| r.primary_value == sr.item.path || r.title == sr.item.title);
+
+        if let Some(existing) = existing {
+            // Actualizar score con el máximo entre fuzzy y semántico
+            existing.score = existing.score.max(semantic_score);
+        } else {
+            // Determinar el kind basado en el tipo del vector store
+            let kind = match sr.item.kind.as_str() {
+                "app" => SearchResultKind::App,
+                "file" => SearchResultKind::File,
+                "code" => SearchResultKind::File,
+                _ => SearchResultKind::Info,
+            };
+
+            response.results.push(SearchResult {
+                kind,
+                title: sr.item.title.clone(),
+                subtitle: sr.item.subtitle.clone(),
+                primary_value: sr.item.path.clone(),
+                score: semantic_score,
+            });
+        }
+    }
+
+    // Re-sort solo los resultados regulares por score.
+    response
+        .results
+        .sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.title.cmp(&b.title)));
+
+    // Re-anexar las funciones especiales al final (el frontend las extrae por kind).
+    response.results.extend(special);
+}
+
+/// Búsqueda puramente semántica (sin fuzzy).
+///
+/// Retorna resultados con su cosine similarity.
+#[tauri::command]
+fn semantic_search(
+    query: String,
+    limit: Option<usize>,
+    kind_filter: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut engine_guard = state
+        .embedding_engine
+        .lock()
+        .map_err(|e| format!("Error leyendo embedding engine: {e}"))?;
+
+    let engine = engine_guard
+        .as_mut()
+        .ok_or("Embedding engine no disponible. Verifica que el modelo esté instalado.")?;
+
+    let store_guard = state
+        .vector_store
+        .lock()
+        .map_err(|e| format!("Error leyendo vector store: {e}"))?;
+
+    let query_emb = engine
+        .embed(&query)
+        .map_err(|e| format!("Error generando embedding: {e}"))?;
+
+    let results = store_guard
+        .search(&query_emb, limit.unwrap_or(10), kind_filter.as_deref())
+        .map_err(|e| format!("Error en búsqueda semántica: {e}"))?;
+
+    Ok(results
+        .into_iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.item.id,
+                "kind": r.item.kind,
+                "title": r.item.title,
+                "subtitle": r.item.subtitle,
+                "path": r.item.path,
+                "similarity": r.similarity,
+                "score": (r.similarity * 600.0) as i32,
+            })
+        })
+        .collect())
+}
+
+/// Re-indexa items en el vector store.
+///
+/// Genera embeddings para todas las apps indexadas.
+#[tauri::command]
+fn reindex_vectors(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let mut engine_guard = state
+        .embedding_engine
+        .lock()
+        .map_err(|e| format!("Error leyendo embedding engine: {e}"))?;
+
+    let engine = engine_guard
+        .as_mut()
+        .ok_or("Embedding engine no disponible. Verifica que el modelo esté instalado.")?;
+
+    // Indexar apps (name, primary path, subtitle) con más contexto para mejorar
+    // el recall semántico en queries no exactas.
+    let apps = state.search_service.list_apps();
+    let mut items = Vec::new();
+
+    for (name, primary_path, subtitle) in &apps {
+        let searchable = build_app_searchable_text(name, subtitle, primary_path);
+        let embedding = engine
+            .embed(&searchable)
+            .map_err(|e| format!("Error embeddeando '{}': {e}", name))?;
+
+        items.push(vector_store::VectorItem {
+            id: format!("app:{}", name.to_lowercase()),
+            kind: "app".to_string(),
+            title: name.clone(),
+            subtitle: subtitle.clone(),
+            path: primary_path.clone(),
+            embedding,
+            metadata: serde_json::json!({
+                "semantic_text": searchable,
+            })
+            .to_string(),
+            updated_at: chrono_now_millis(),
+        });
+    }
+
+    let count = items.len();
+
+    let store_guard = state
+        .vector_store
+        .lock()
+        .map_err(|e| format!("Error leyendo vector store: {e}"))?;
+
+    // Limpiar items de tipo "app" y re-insertar
+    store_guard
+        .remove_by_kind("app")
+        .map_err(|e| format!("Error limpiando vector store: {e}"))?;
+
+    store_guard
+        .upsert_batch(&items)
+        .map_err(|e| format!("Error insertando en vector store: {e}"))?;
+
+    Ok(format!(
+        "Re-indexados {} apps en vector store ({} total)",
+        count,
+        store_guard.count()
+    ))
+}
+
+/// Retorna estadísticas del vector store.
+#[tauri::command]
+fn vector_store_stats(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let store_guard = state
+        .vector_store
+        .lock()
+        .map_err(|e| format!("Error leyendo vector store: {e}"))?;
+
+    let model_file = state
+        .embedding_engine
+        .lock()
+        .map(|e| {
+            e.as_ref()
+                .and_then(|engine| engine.model_file_name().map(str::to_string))
+        })
+        .unwrap_or(None);
+
+    Ok(serde_json::json!({
+        "total_items": store_guard.count(),
+        "apps": store_guard.count_by_kind("app"),
+        "files": store_guard.count_by_kind("file"),
+        "engine_available": model_file.is_some(),
+        "model_file": model_file,
+    }))
+}
+
+fn build_app_searchable_text(name: &str, subtitle: &str, primary_path: &str) -> String {
+    let mut parts = Vec::with_capacity(3);
+
+    if !name.trim().is_empty() {
+        parts.push(name.trim());
+    }
+    if !subtitle.trim().is_empty() {
+        parts.push(subtitle.trim());
+    }
+    if !primary_path.trim().is_empty() {
+        parts.push(primary_path.trim());
+    }
+
+    parts.join(" | ")
+}
+
+/// Timestamp en milisegundos (helper para reindex_vectors).
+fn chrono_now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+/// Retorna el puerto del HTTP server para que agentes puedan conectarse.
+#[tauri::command]
+fn get_http_port(state: tauri::State<'_, AppState>) -> u16 {
+    state.http_port
+}
+
 #[tauri::command]
 fn get_settings(state: tauri::State<'_, AppState>) -> LauncherSettings {
     state.search_service.launcher_settings()
@@ -124,6 +413,31 @@ fn save_settings(
     let normalized = state.search_service.update_launcher_settings(settings);
     apply_autostart_setting(normalized.start_with_windows).map_err(|error| error.to_string())?;
     settings_store::save_settings(&normalized)?;
+
+    // Reindexar archivos semánticos en background según las carpetas configuradas.
+    // No bloquea la UI: se hace en un thread con el engine y el store compartidos.
+    let engine = Arc::clone(&state.embedding_engine);
+    let store = Arc::clone(&state.vector_store);
+    let semantic_roots = normalized.semantic_roots.clone();
+    std::thread::spawn(move || {
+        let roots = indexer::roots_from_settings(&semantic_roots);
+        let Ok(mut engine_guard) = engine.lock() else {
+            return;
+        };
+        let Some(engine) = engine_guard.as_mut() else {
+            return;
+        };
+        let Ok(store_guard) = store.lock() else {
+            return;
+        };
+        if roots.is_empty() {
+            // Sin carpetas: limpiar archivos viejos del índice.
+            let _ = store_guard.remove_by_kind("file");
+        } else if let Err(e) = indexer::index_files(&roots, &store_guard, engine, 20_000, 10) {
+            log::error!("Error reindexando archivos semánticos: {e}");
+        }
+    });
+
     Ok(normalized)
 }
 
@@ -1456,9 +1770,70 @@ pub fn run() {
     let startup_settings = settings_store::load_settings();
     let startup_settings_for_setup = startup_settings.clone();
 
+    // Inicializar vector store
+    let vector_db_path = dirs()
+        .map(|d| d.join("vectors.db"))
+        .unwrap_or_else(|| PathBuf::from("vectors.db"));
+
+    let vector_store = Arc::new(Mutex::new(
+        vector_store::VectorStore::open(&vector_db_path).unwrap_or_else(|e| {
+            log::error!("Error abriendo vector store: {e}. Usando DB temporal.");
+            vector_store::VectorStore::open(&PathBuf::from(":memory:")).unwrap()
+        }),
+    ));
+
+    // Inicializar embedding engine (puede fallar si el modelo no está)
+    let model_dir = dirs()
+        .map(|d| d.join("models").join("granite-embedding-97m"))
+        .unwrap_or_else(|| PathBuf::from("models/granite-embedding-97m"));
+
+    let embedding_engine = Arc::new(Mutex::new(
+        match embedding_engine::EmbeddingEngine::new(&model_dir) {
+            Ok(engine) => {
+                log::info!("Embedding engine cargado correctamente");
+                Some(engine)
+            }
+            Err(e) => {
+                log::warn!(
+                    "Embedding engine no disponible: {e}. Búsqueda semántica deshabilitada."
+                );
+                None
+            }
+        },
+    ));
+
+    // Crear SearchService primero para usarlo en AppState y HTTP server
+    let search_service = Arc::new(SearchService::new(startup_settings));
+
+    // Puerto del HTTP server (configurable via variable de entorno)
+    let http_port: u16 = std::env::var("BUSCADOR_HTTP_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8755);
+
+    // Preparar closures para el HTTP server
+    let search_service_http = Arc::clone(&search_service);
+    let search_service_apps = Arc::clone(&search_service);
+    let search_service_roots = Arc::clone(&search_service);
+
+    // Iniciar HTTP server
+    let http_state = http_server::HttpState {
+        search_fn: Arc::new(move |query: &str, limit: usize| {
+            search_service_http.search(query, limit).results
+        }),
+        list_apps_fn: Arc::new(move || search_service_apps.list_apps()),
+        semantic_roots_fn: Arc::new(move || {
+            search_service_roots.launcher_settings().semantic_roots
+        }),
+        embedding_engine: Arc::clone(&embedding_engine),
+        vector_store: Arc::clone(&vector_store),
+    };
+
+    let http_shutdown = http_server::start_http_server(http_state, http_port);
+
     let app = tauri::Builder::default()
         .manage(AppState {
-            search_service: Arc::new(SearchService::new(startup_settings)),
+            search_service: Arc::clone(&search_service),
             freq_store: Arc::new(Mutex::new(FreqStore::load())),
             icon_cache: Mutex::new(HashMap::new()),
             window_booting: AtomicBool::new(false),
@@ -1466,6 +1841,10 @@ pub fn run() {
             main_window_crashed: AtomicBool::new(false),
             last_show_millis: AtomicU64::new(0),
             focused_since_show: AtomicBool::new(false),
+            embedding_engine,
+            vector_store,
+            http_shutdown: Mutex::new(Some(http_shutdown)),
+            http_port,
         })
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -1545,7 +1924,11 @@ pub fn run() {
             resolve_icon,
             resize_launcher,
             request_launcher_focus,
-            get_apps
+            get_apps,
+            semantic_search,
+            reindex_vectors,
+            vector_store_stats,
+            get_http_port
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

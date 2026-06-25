@@ -38,6 +38,17 @@ futures-lite = "2"
 ashpd = { version = "0.13", features = ["tokio", "global_shortcuts"] }
 tokio = { version = "1", features = ["rt"] }
 urlencoding = "2.1.3"
+dirs = "6"
+
+# Semantic search — embedding engine + vector store
+ort = "2.0.0-rc.12"
+rusqlite = { version = "0.31", features = ["bundled"] }
+tokenizers = "0.20"
+ndarray = "0.17"
+
+# HTTP API for agent integration
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
