@@ -801,6 +801,31 @@ fn looks_like_math(query: &str) -> bool {
     })
 }
 
+#[cfg(target_os = "linux")]
+fn read_desktop_name(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut in_section = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line == "[Desktop Entry]" {
+            in_section = true;
+            continue;
+        }
+        if in_section && line.starts_with('[') {
+            break;
+        }
+        if in_section {
+            if let Some(value) = line.strip_prefix("Name=") {
+                let name = value.trim().to_string();
+                if !name.is_empty() {
+                    return Some(name);
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -854,5 +879,51 @@ mod tests {
         let (mode, q) = parse_mode("D:/Projects/app");
         assert_eq!(mode, SearchMode::Path);
         assert_eq!(q, "D:/Projects/app");
+    }
+
+    // --- read_desktop_name ---
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn desktop_name_found() {
+        let dir = std::env::temp_dir().join("buscador_test_dn1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("app.desktop");
+        std::fs::write(&p, "[Desktop Entry]\nName=My Cool App\nExec=myapp\n").unwrap();
+        assert_eq!(read_desktop_name(&p), Some("My Cool App".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn desktop_name_outside_section_ignored() {
+        let dir = std::env::temp_dir().join("buscador_test_dn2");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("app.desktop");
+        std::fs::write(&p, "Name=Orphan\n[Desktop Entry]\nExec=myapp\n").unwrap();
+        // Name= before [Desktop Entry] → None
+        assert_eq!(read_desktop_name(&p), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn desktop_name_nonexistent_file() {
+        assert_eq!(read_desktop_name(Path::new("/no/such/file.desktop")), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn desktop_name_stops_at_next_section() {
+        let dir = std::env::temp_dir().join("buscador_test_dn3");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("app.desktop");
+        std::fs::write(
+            &p,
+            "[Desktop Entry]\nExec=myapp\n[Other]\nName=Wrong\n",
+        )
+        .unwrap();
+        assert_eq!(read_desktop_name(&p), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
