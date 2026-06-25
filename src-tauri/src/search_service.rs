@@ -97,7 +97,7 @@ impl SearchService {
         // Temporary placeholder — replaced in Task 4
         if mode == SearchMode::Path {
             return SearchResponse {
-                results: vec![],
+                results: build_path_results(&query, limit),
                 file_indexing: false,
             };
         }
@@ -1149,5 +1149,39 @@ mod tests {
         assert_eq!(app.title, "My App");
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // --- integration: Path mode wired into search_internal ---
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn search_path_mode_returns_filesystem_results() {
+        // parse_mode + build_path_results together via the public-ish path
+        let (mode, query) = parse_mode("/tmp");
+        assert_eq!(mode, SearchMode::Path);
+        // build_path_results should find /tmp at score 2000
+        let results = build_path_results(&query, 5);
+        assert!(
+            results
+                .iter()
+                .any(|r| r.primary_value == "/tmp" && r.score == 2000),
+            "Expected /tmp as exact match at score 2000, got {:?}",
+            results
+                .iter()
+                .map(|r| (&r.primary_value, r.score))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn search_path_mode_no_bleed_into_file_mode() {
+        // Single-segment non-existent path must NOT be Path mode
+        let (mode, _) = parse_mode("/zzz_buscador_no_exist");
+        assert_eq!(
+            mode,
+            SearchMode::File,
+            "Single non-existent segment must stay as File mode"
+        );
     }
 }
