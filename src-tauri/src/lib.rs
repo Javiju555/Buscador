@@ -33,7 +33,7 @@ use arboard::Clipboard;
 use freq_store::FreqStore;
 use models::{ExecutePayload, LauncherSettings, SearchResponse, SearchResultKind};
 use search_service::SearchService;
-use tauri::{Emitter, LogicalSize, Manager, Size, WebviewWindow};
+use tauri::{Emitter, LogicalSize, Manager, Size, WebviewWindow, Position, PhysicalPosition};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[cfg(target_os = "linux")]

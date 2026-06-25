@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 
 #[cfg(unix)]
@@ -35,7 +35,7 @@ impl CommandCatalog {
             .commands
             .iter()
             .filter_map(|entry| {
-                let points = score(
+                let mut points = score(
                     &normalized_query,
                     &query_terms,
                     &[&entry.name_normalized, &entry.path_normalized],
