@@ -41,7 +41,7 @@ impl SearchService {
         self.app_catalog.refresh();
     }
 
-    /// Lista todas las apps para el grid/Launchpad: (name, exec, desktop_path)
+    /// Lista todas las apps para el grid/Launchpad: (name, primary_path, subtitle)
     pub fn list_apps(&self) -> Vec<(String, String, String)> {
         self.app_catalog.list_all()
     }
@@ -91,6 +91,14 @@ impl SearchService {
                     &settings.web_api_key,
                 ),
                 file_indexing: self.file_catalog.is_indexing(),
+            };
+        }
+
+        // Temporary placeholder — replaced in Task 4
+        if mode == SearchMode::Path {
+            return SearchResponse {
+                results: vec![],
+                file_indexing: false,
             };
         }
 
@@ -151,11 +159,12 @@ impl SearchService {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 enum SearchMode {
     Mixed,
     Command,
     File,
+    Path,
     Web,
     Calculation,
 }
@@ -171,11 +180,33 @@ fn parse_mode(raw_query: &str) -> (SearchMode, String) {
     if let Some(stripped) = query.strip_prefix('>') {
         return (SearchMode::Command, stripped.trim().to_string());
     }
-    if let Some(stripped) = query.strip_prefix('/') {
-        return (SearchMode::File, stripped.trim().to_string());
-    }
     if let Some(stripped) = query.strip_prefix('=') {
         return (SearchMode::Calculation, stripped.trim().to_string());
+    }
+
+    // Absolute path detection — checked before File mode
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if query.starts_with('/') {
+        let after_slash = &query[1..];
+        if after_slash.contains('/') || std::path::Path::new(query).exists() {
+            return (SearchMode::Path, query.to_string());
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let bytes = query.as_bytes();
+        if bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && (bytes[2] == b'\\' || bytes[2] == b'/')
+        {
+            return (SearchMode::Path, query.to_string());
+        }
+    }
+
+    if let Some(stripped) = query.strip_prefix('/') {
+        return (SearchMode::File, stripped.trim().to_string());
     }
     (SearchMode::Mixed, query.to_string())
 }
@@ -768,4 +799,60 @@ fn looks_like_math(query: &str) -> bool {
             || lowered.starts_with(&format!("{name}("))
             || lowered.starts_with(&format!("{name} ("))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- parse_mode: Path detection ---
+
+    #[test]
+    fn parse_mode_path_multi_segment_linux() {
+        // Multi-segment always → Path regardless of existence
+        let (mode, q) = parse_mode("/home/user/documents");
+        assert_eq!(mode, SearchMode::Path);
+        assert_eq!(q, "/home/user/documents");
+    }
+
+    #[test]
+    fn parse_mode_path_trailing_slash() {
+        let (mode, q) = parse_mode("/home/user/");
+        assert_eq!(mode, SearchMode::Path);
+        assert_eq!(q, "/home/user/");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_mode_path_existing_single_segment() {
+        // /tmp always exists on Linux → Path mode even with one segment
+        let (mode, q) = parse_mode("/tmp");
+        assert_eq!(mode, SearchMode::Path);
+        assert_eq!(q, "/tmp");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_mode_file_nonexistent_single_segment() {
+        // Non-existent single-segment stays as File mode
+        let (mode, q) = parse_mode("/zzz_buscador_no_exist");
+        assert_eq!(mode, SearchMode::File);
+        assert_eq!(q, "zzz_buscador_no_exist");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn parse_mode_path_windows_backslash() {
+        let (mode, q) = parse_mode(r"C:\Users\test");
+        assert_eq!(mode, SearchMode::Path);
+        assert_eq!(q, r"C:\Users\test");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn parse_mode_path_windows_forward_slash() {
+        let (mode, q) = parse_mode("D:/Projects/app");
+        assert_eq!(mode, SearchMode::Path);
+        assert_eq!(q, "D:/Projects/app");
+    }
 }
