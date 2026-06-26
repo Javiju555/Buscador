@@ -33,7 +33,7 @@ const RESULTS_LIMIT = 6;
 const SEARCH_LIMIT = 12;
 const FULL_SEARCH_DELAY_MS = 130;
 const ICON_CACHE_LIMIT = RESULTS_LIMIT * 2;
-const INPUT_FOCUS_RETRIES = 24;
+const INPUT_FOCUS_RETRIES = 5;
 const INPUT_FOCUS_RETRY_DELAY_MS = 50;
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
@@ -185,7 +185,6 @@ let activeSearchId = 0;
 let progressivePhaseActive = false;
 let settingsOpen = false;
 let settingsLoaded = false;
-let focusBridgeRequested = false;
 let selectionMode: "calculation" | "results" = "results";
 
 const iconCache = new Map<string, string | null>();
@@ -236,7 +235,7 @@ function initThemeSync(): void {
 }
 
 function initFocusEvent(): void {
-  listen("launcher-focus", () => {
+  listen("launcher-show", () => {
     void invoke<string>("system_theme")
       .then((theme) => {
         if (theme === "dark" || theme === "light") {
@@ -830,7 +829,6 @@ function focusQueryInput(maxRetries = INPUT_FOCUS_RETRIES): void {
     return;
   }
 
-  focusBridgeRequested = false;
   let retries = 0;
   const attemptFocus = (): void => {
     if (settingsOpen) {
@@ -841,11 +839,6 @@ function focusQueryInput(maxRetries = INPUT_FOCUS_RETRIES): void {
     const active = document.activeElement === queryInput;
     if (active && document.hasFocus()) {
       return;
-    }
-
-    if (!focusBridgeRequested && retries >= 2) {
-      focusBridgeRequested = true;
-      void invoke("request_launcher_focus").catch(() => undefined);
     }
 
     retries += 1;

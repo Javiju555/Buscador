@@ -43,12 +43,11 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const KEEPALIVE_WINDOW_LABEL: &str = "__buscador_keepalive";
 const AGGRESSIVE_IDLE_MODE: bool = false;
 const FOCUS_HIDE_DEBOUNCE_MS: u64 = 140;
-const FOCUS_RETRY_DELAYS_MS: [u64; 3] = [20, 75, 140];
+const FOCUS_RETRY_DELAYS_MS: [u64; 1] = [50];
 const FOCUS_GUARD_POLL_MS: u64 = 120;
 const FOCUS_GUARD_HIDE_AFTER_MS: u64 = 900;
 const FOCUS_GUARD_MAX_MS: u64 = 12_000;
-const FRONTEND_FOCUS_EVENT_RETRIES_MS: [u64; 2] = [90, 240];
-const BLUR_CLOSE_GRACE_AFTER_SHOW_MS: u64 = 950;
+const BLUR_CLOSE_GRACE_AFTER_SHOW_MS: u64 = 200;
 
 struct AppState {
     search_service: Arc<SearchService>,
@@ -597,7 +596,6 @@ fn request_launcher_focus(app: tauri::AppHandle) -> Result<(), String> {
     window
         .set_focus()
         .map_err(|error| format!("No se pudo enfocar la ventana: {error}"))?;
-    window.emit("launcher-focus", ()).ok();
     Ok(())
 }
 
@@ -1012,14 +1010,6 @@ fn attach_main_window_handlers(window: &WebviewWindow, app: &tauri::AppHandle) {
                     return;
                 }
 
-                let focused_once = app
-                    .state::<AppState>()
-                    .focused_since_show
-                    .load(Ordering::Acquire);
-                if !focused_once {
-                    return;
-                }
-
                 let still_visible = window.is_visible().unwrap_or(false);
                 let still_unfocused = !window.is_focused().unwrap_or(false);
                 if still_visible && still_unfocused {
@@ -1225,7 +1215,7 @@ fn show_main_window(app: &tauri::AppHandle, window: &WebviewWindow) {
     center_on_active_monitor(window).ok();
     window.show().ok();
     window.set_focus().ok();
-    window.emit("launcher-focus", ()).ok();
+    window.emit("launcher-show", ()).ok();
 
     let search_service = Arc::clone(&app.state::<AppState>().search_service);
     std::thread::spawn(move || {
@@ -1240,20 +1230,11 @@ fn show_main_window(app: &tauri::AppHandle, window: &WebviewWindow) {
         });
     }
 
-    for delay in FRONTEND_FOCUS_EVENT_RETRIES_MS {
-        let window_clone = window.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(delay));
-            window_clone.emit("launcher-focus", ()).ok();
-        });
-    }
-
     let window_clone = window.clone();
     let app_handle = app.clone();
     std::thread::spawn(move || {
         let started_at = Instant::now();
         let mut unfocused_since: Option<Instant> = None;
-        let mut saw_focus_once = false;
 
         loop {
             std::thread::sleep(Duration::from_millis(FOCUS_GUARD_POLL_MS));
@@ -1268,16 +1249,11 @@ fn show_main_window(app: &tauri::AppHandle, window: &WebviewWindow) {
 
             let focused = window_clone.is_focused().unwrap_or(false);
             if focused {
-                saw_focus_once = true;
                 app_handle
                     .state::<AppState>()
                     .focused_since_show
                     .store(true, Ordering::Release);
                 unfocused_since = None;
-                continue;
-            }
-
-            if !saw_focus_once {
                 continue;
             }
 
