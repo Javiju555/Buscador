@@ -7,3 +7,5 @@ target/
 src-tauri/target/
 models/
 *.db
+scratch/
+*.txt

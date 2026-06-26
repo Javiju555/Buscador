@@ -67,6 +67,10 @@ const translations: Record<string, Record<string, string>> = {
         " result(s). Enter copies calculation; ↓ to open results.": " result(s). Enter copies calculation; ↓ to open results.",
         " result(s). Refining files...": " result(s). Refining files...",
         " result(s). Enter to open.": " result(s). Enter to open.",
+        "Descargar modelo": "Download model",
+        "Descargando modelo...": "Downloading model...",
+        "Modelo descargado con exito.": "Model downloaded successfully.",
+        "Error al descargar modelo": "Could not download model",
     },
     es: {
         "Buscar apps, comandos, archivos, web (w ...) o calculos": "Buscar apps, comandos, archivos, web (w ...) o cálculos",
@@ -134,6 +138,10 @@ const translations: Record<string, Record<string, string>> = {
         " result(s). Enter copies calculation; ↓ to open results.": " resultado(s). Enter copia el cálculo; ↓ para abrir resultados.",
         " result(s). Refining files...": " resultado(s). Afinando archivos...",
         " result(s). Enter to open.": " resultado(s). Enter para abrir.",
+        "Descargar modelo": "Descargar modelo",
+        "Descargando modelo...": "Descargando modelo...",
+        "Modelo descargado con exito.": "Modelo descargado con éxito.",
+        "Error al descargar modelo": "Error al descargar el modelo",
     },
 };
 

@@ -400,6 +400,73 @@ fn get_http_port(state: tauri::State<'_, AppState>) -> u16 {
     state.http_port
 }
 
+#[cfg(windows)]
+fn run_ps1_script(script_path: &std::path::Path) -> Result<String, String> {
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script_path.to_str().ok_or("Ruta de script inválida")?,
+        ])
+        .output()
+        .map_err(|e| format!("Error ejecutando powershell: {e}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[cfg(not(windows))]
+fn run_sh_script(script_path: &std::path::Path) -> Result<String, String> {
+    let output = std::process::Command::new("sh")
+        .arg(script_path.to_str().ok_or("Ruta de script inválida")?)
+        .output()
+        .map_err(|e| format!("Error ejecutando sh: {e}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+async fn download_embedding_model() -> Result<String, String> {
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe_path.parent().ok_or("No se pudo obtener el directorio del ejecutable")?;
+
+    #[cfg(windows)]
+    {
+        let script_path = exe_dir.join("fetch-embedding-model.ps1");
+        if !script_path.exists() {
+            let dev_script_path = exe_dir.join("../../../scripts/fetch-embedding-model.ps1");
+            if dev_script_path.exists() {
+                return run_ps1_script(&dev_script_path);
+            }
+            return Err(format!("No se encontró el script de descarga en: {}", script_path.display()));
+        }
+        run_ps1_script(&script_path)
+    }
+
+    #[cfg(not(windows))]
+    {
+        let script_path = exe_dir.join("fetch-embedding-model.sh");
+        if !script_path.exists() {
+            let dev_script_path = exe_dir.join("../../../scripts/fetch-embedding-model.sh");
+            if dev_script_path.exists() {
+                return run_sh_script(&dev_script_path);
+            }
+            return Err(format!("No se encontró el script de descarga en: {}", script_path.display()));
+        }
+        run_sh_script(&script_path)
+    }
+}
+
+
 #[tauri::command]
 fn get_settings(state: tauri::State<'_, AppState>) -> LauncherSettings {
     state.search_service.launcher_settings()
@@ -1928,7 +1995,8 @@ pub fn run() {
             semantic_search,
             reindex_vectors,
             vector_store_stats,
-            get_http_port
+            get_http_port,
+            download_embedding_model
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

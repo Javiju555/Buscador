@@ -133,6 +133,7 @@ appRoot.innerHTML = `
       <div class="settings-actions">
         <button id="settings-save" class="settings-button primary" type="button">${tr('Guardar y reindexar')}</button>
         <button id="settings-reindex" class="settings-button" type="button">${tr('Reindexar')}</button>
+        <button id="settings-download-model" class="settings-button" type="button">${tr('Descargar modelo')}</button>
       </div>
       <p id="settings-status" class="settings-status"></p>
     </section>
@@ -167,6 +168,7 @@ const settingsStartWithWindowsInput = document.querySelector<HTMLInputElement>(
 )!;
 const settingsSaveButton = document.querySelector<HTMLButtonElement>("#settings-save")!;
 const settingsReindexButton = document.querySelector<HTMLButtonElement>("#settings-reindex")!;
+const settingsDownloadModelButton = document.querySelector<HTMLButtonElement>("#settings-download-model")!;
 const settingsStatus = document.querySelector<HTMLElement>("#settings-status")!;
 const launcherPill = document.querySelector<HTMLElement>(".launcher-pill")!;
 
@@ -299,6 +301,19 @@ function initSettingsHandlers(): void {
       settingsStatus.textContent = tr('Reindexado lanzado en segundo plano.');
     } catch (error) {
       settingsStatus.textContent = `${tr("Could not reindex")}: ${String(error)}`;
+    }
+  });
+
+  settingsDownloadModelButton.addEventListener("click", async () => {
+    try {
+      settingsDownloadModelButton.disabled = true;
+      settingsStatus.textContent = tr('Descargando modelo...');
+      await invoke("download_embedding_model");
+      settingsStatus.textContent = tr('Modelo descargado con exito.');
+    } catch (error) {
+      settingsStatus.textContent = `${tr("Error al descargar modelo")}: ${String(error)}`;
+    } finally {
+      settingsDownloadModelButton.disabled = false;
     }
   });
 }
