@@ -55,8 +55,15 @@ pub struct LauncherSettings {
     /// Agnóstico al SO: acepta rutas de Windows y Linux.
     #[serde(default)]
     pub semantic_roots: Vec<String>,
+    /// Número de resultados visibles en el lanzador (3-20). Por defecto 6.
+    #[serde(default = "default_results_limit")]
+    pub results_limit: usize,
 }
 
 fn default_theme() -> String {
     "system".to_string()
+}
+
+fn default_results_limit() -> usize {
+    6
 }

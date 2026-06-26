@@ -16,12 +16,17 @@ use crate::text_matcher::{normalize, score, split_terms};
 
 pub struct AppCatalog {
     apps: RwLock<Vec<AppEntry>>,
+    /// Rutas personalizadas del usuario para escanear EXEs (p.ej. E:\\, E:\\Sandboxie).
+    custom_exe_roots: RwLock<Vec<PathBuf>>,
 }
 
 impl AppCatalog {
-    pub fn new() -> Self {
+    pub fn new(user_roots: &[String]) -> Self {
+        let custom_roots = parse_user_roots(user_roots);
+        let apps = build_catalog(&custom_roots);
         Self {
-            apps: RwLock::new(build_catalog()),
+            apps: RwLock::new(apps),
+            custom_exe_roots: RwLock::new(custom_roots),
         }
     }
 
@@ -114,12 +119,29 @@ impl AppCatalog {
             .collect()
     }
 
+    /// Re-escanea el catálogo con las mismas raíces.
     pub fn refresh(&self) {
-        let next = build_catalog();
+        let roots = self
+            .custom_exe_roots
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let next = build_catalog(&roots);
         if next.is_empty() {
             return;
         }
+        if let Ok(mut current) = self.apps.write() {
+            *current = next;
+        }
+    }
 
+    /// Re-escanea el catálogo con nuevas raíces de usuario.
+    pub fn refresh_with_roots(&self, user_roots: &[String]) {
+        let new_roots = parse_user_roots(user_roots);
+        if let Ok(mut guard) = self.custom_exe_roots.write() {
+            *guard = new_roots.clone();
+        }
+        let next = build_catalog(&new_roots);
         if let Ok(mut current) = self.apps.write() {
             *current = next;
         }
@@ -137,7 +159,7 @@ struct AppEntry {
     path_normalized: String,
 }
 
-fn build_catalog() -> Vec<AppEntry> {
+fn build_catalog(custom_roots: &[PathBuf]) -> Vec<AppEntry> {
     #[cfg(target_os = "linux")]
     {
         let mut found = BTreeMap::<String, AppEntry>::new();
@@ -191,9 +213,19 @@ fn build_catalog() -> Vec<AppEntry> {
             collect_root_entries(&root, source_name, &mut found);
         }
         collect_start_apps_entries(&mut found);
+        collect_program_files_entries(&mut found, custom_roots);
 
         found.into_values().collect()
     }
+}
+
+/// Convierte las rutas configuradas por el usuario (strings) en PathBufs válidos.
+fn parse_user_roots(roots: &[String]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .map(|s| PathBuf::from(s.trim()))
+        .filter(|p| !p.as_os_str().is_empty())
+        .collect()
 }
 
 fn collect_root_entries(root: &Path, source_name: &str, found: &mut BTreeMap<String, AppEntry>) {
@@ -329,6 +361,269 @@ fn collect_start_apps_entries(found: &mut BTreeMap<String, AppEntry>) {
                     path_normalized: normalize(&shell_path),
                 }
             });
+        }
+    }
+}
+
+/// Escanea %ProgramFiles%, %ProgramFiles(x86)% y %LOCALAPPDATA%\Programs buscando
+/// EXEs directos de aplicaciones instaladas que no tienen acceso directo en el Start Menu.
+///
+/// Solo escanea el primer nivel de subdirectorios dentro de cada raíz (p.ej.
+/// `C:\Program Files\Sandman\Sandman.exe`) para evitar recoger helpers internos.
+/// Aplica una blocklist de nombres de exe conocidos que son helpers o instaladores.
+#[cfg(not(target_os = "linux"))]
+fn collect_program_files_entries(found: &mut BTreeMap<String, AppEntry>, custom_roots: &[PathBuf]) {
+    /// Fragmentos de nombre de exe (en minúsculas) que indican helpers/instaladores.
+    const EXE_BLOCKLIST: &[&str] = &[
+        "uninstall",
+        "uninst",
+        "setup",
+        "install",
+        "update",
+        "updater",
+        "crash",
+        "crashpad",
+        "helper",
+        "subprocess",
+        "squirrel",
+        "cef",
+        "launcher_helper",
+        "notification_helper",
+        "elevated_helper",
+        "gpu_helper",
+        "renderer",
+        "broker",
+        "handler",
+        "hook",
+        "injector",
+        "patcher",
+        "repair",
+        "recovery",
+        "diagnostic",
+        "cleanup",
+        "purge",
+        "migrate",
+        "register",
+        "regsvr",
+    ];
+
+    let mut pf_roots: Vec<PathBuf> = vec![];
+
+    if let Some(pf) = env::var_os("ProgramFiles") {
+        pf_roots.push(PathBuf::from(pf));
+    }
+    if let Some(pf86) = env::var_os("ProgramFiles(x86)") {
+        let path = PathBuf::from(pf86);
+        if !pf_roots.contains(&path) {
+            pf_roots.push(path);
+        }
+    }
+    if let Some(local) = env::var_os("LOCALAPPDATA") {
+        let programs = PathBuf::from(local).join("Programs");
+        if programs.exists() {
+            pf_roots.push(programs);
+        }
+    }
+
+    for root in &pf_roots {
+        if !root.exists() {
+            continue;
+        }
+
+        // Iterar solo los subdirectorios directos de la raíz (profundidad 1)
+        let subdir_iter = match std::fs::read_dir(root) {
+            Ok(iter) => iter,
+            Err(_) => continue,
+        };
+
+        for subdir_entry in subdir_iter.filter_map(Result::ok) {
+            let subdir_path = subdir_entry.path();
+            if !subdir_path.is_dir() {
+                continue;
+            }
+
+            // Buscar EXEs en el primer nivel del subdirectorio
+            let exe_iter = match std::fs::read_dir(&subdir_path) {
+                Ok(iter) => iter,
+                Err(_) => continue,
+            };
+
+            let app_folder_name = subdir_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            for exe_entry in exe_iter.filter_map(Result::ok) {
+                let exe_path = exe_entry.path();
+                if !exe_path.is_file() {
+                    continue;
+                }
+
+                let ext = exe_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_ascii_lowercase())
+                    .unwrap_or_default();
+                if ext != "exe" {
+                    continue;
+                }
+
+                let stem = match exe_path.file_stem().and_then(|s| s.to_str()) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                // Filtrar helpers/uninstallers por nombre del exe
+                let stem_lower = stem.to_ascii_lowercase();
+                if EXE_BLOCKLIST
+                    .iter()
+                    .any(|blocked| stem_lower.contains(blocked))
+                {
+                    continue;
+                }
+
+                // Evitar nombres puramente numéricos o de una sola letra
+                if stem.len() < 2 || stem.chars().all(|c| c.is_ascii_digit()) {
+                    continue;
+                }
+
+                let dedupe_key = stem.to_ascii_lowercase();
+
+                // Solo insertar si NO existe ya (el Start Menu tiene prioridad)
+                if found.contains_key(&dedupe_key) {
+                    continue;
+                }
+
+                // Usar el nombre de la carpeta como título si difiere del exe
+                // (p.ej. carpeta "Sandman" + exe "Sandman.exe" → título "Sandman")
+                let display_name = if app_folder_name
+                    .to_ascii_lowercase()
+                    .starts_with(&stem_lower)
+                    || stem_lower.starts_with(&app_folder_name.to_ascii_lowercase())
+                {
+                    app_folder_name.clone()
+                } else {
+                    stem.to_string()
+                };
+
+                let path_string = exe_path.to_string_lossy().to_string();
+                let alias = build_alias(&display_name);
+                let subtitle = format!("Program Files · {app_folder_name}");
+
+                found.insert(
+                    dedupe_key,
+                    AppEntry {
+                        name: display_name.clone(),
+                        name_normalized: normalize(&display_name),
+                        alias_normalized: normalize(&alias),
+                        subtitle: subtitle.clone(),
+                        subtitle_normalized: normalize(&subtitle),
+                        path: path_string.clone(),
+                        path_normalized: normalize(&path_string),
+                    },
+                );
+            }
+        }
+    }
+
+    // Escanear también las rutas personalizadas del usuario (p.ej. E:\Sandboxie, E:\Games\...)
+    // Profundidad: root → subcarpeta → exe (mismo patrón que Program Files)
+    for custom_root in custom_roots {
+        if !custom_root.exists() {
+            continue;
+        }
+
+        let subdir_iter = match std::fs::read_dir(custom_root) {
+            Ok(iter) => iter,
+            Err(_) => continue,
+        };
+
+        for subdir_entry in subdir_iter.filter_map(Result::ok) {
+            let subdir_path = subdir_entry.path();
+            if !subdir_path.is_dir() {
+                continue;
+            }
+
+            let app_folder_name = subdir_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            let exe_iter = match std::fs::read_dir(&subdir_path) {
+                Ok(iter) => iter,
+                Err(_) => continue,
+            };
+
+            for exe_entry in exe_iter.filter_map(Result::ok) {
+                let exe_path = exe_entry.path();
+                if !exe_path.is_file() {
+                    continue;
+                }
+
+                let ext = exe_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_ascii_lowercase())
+                    .unwrap_or_default();
+                if ext != "exe" {
+                    continue;
+                }
+
+                let stem = match exe_path.file_stem().and_then(|s| s.to_str()) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let stem_lower = stem.to_ascii_lowercase();
+                if EXE_BLOCKLIST
+                    .iter()
+                    .any(|blocked| stem_lower.contains(blocked))
+                {
+                    continue;
+                }
+
+                if stem.len() < 2 || stem.chars().all(|c| c.is_ascii_digit()) {
+                    continue;
+                }
+
+                let dedupe_key = stem.to_ascii_lowercase();
+                if found.contains_key(&dedupe_key) {
+                    continue;
+                }
+
+                let display_name = if app_folder_name
+                    .to_ascii_lowercase()
+                    .starts_with(&stem_lower)
+                    || stem_lower.starts_with(&app_folder_name.to_ascii_lowercase())
+                {
+                    app_folder_name.clone()
+                } else {
+                    stem.to_string()
+                };
+
+                let path_string = exe_path.to_string_lossy().to_string();
+                let alias = build_alias(&display_name);
+                let root_display = custom_root
+                    .to_str()
+                    .unwrap_or("")
+                    .trim_end_matches(['\\', '/']);
+                let subtitle = format!("{root_display} · {app_folder_name}");
+
+                found.insert(
+                    dedupe_key,
+                    AppEntry {
+                        name: display_name.clone(),
+                        name_normalized: normalize(&display_name),
+                        alias_normalized: normalize(&alias),
+                        subtitle: subtitle.clone(),
+                        subtitle_normalized: normalize(&subtitle),
+                        path: path_string.clone(),
+                        path_normalized: normalize(&path_string),
+                    },
+                );
+            }
         }
     }
 }

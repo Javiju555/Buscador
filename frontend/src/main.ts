@@ -25,14 +25,12 @@ interface LauncherSettings {
   webProvider: string;
   webApiKey: string;
   semanticRoots: string[];
+  resultsLimit: number;
 }
 
 const COLLAPSED_HEIGHT = 92;
 const MAX_WINDOW_HEIGHT = 680;
-const RESULTS_LIMIT = 6;
-const SEARCH_LIMIT = 12;
 const FULL_SEARCH_DELAY_MS = 130;
-const ICON_CACHE_LIMIT = RESULTS_LIMIT * 2;
 const INPUT_FOCUS_RETRIES = 5;
 const INPUT_FOCUS_RETRY_DELAY_MS = 50;
 
@@ -88,7 +86,7 @@ appRoot.innerHTML = `
     </section>
     <section id="settings-panel" class="settings-panel hidden">
       <p class="settings-title">${tr('Ajustes')}</p>
-      <label class="settings-label" for="settings-roots">${tr('Carpetas raiz (; separado)')}</label>
+      <label class="settings-label" for="settings-roots">${tr('Carpetas raiz (; separado) — archivos + apps EXE')}</label>
       <input
         id="settings-roots"
         class="settings-input"
@@ -99,6 +97,8 @@ appRoot.innerHTML = `
       />
       <label class="settings-label" for="settings-max-files">${tr('Maximo de archivos')}</label>
       <input id="settings-max-files" class="settings-input" type="number" min="3000" max="100000" step="500" />
+      <label class="settings-label" for="settings-results-limit">${tr('Resultados visibles (3-20)')}</label>
+      <input id="settings-results-limit" class="settings-input" type="number" min="3" max="20" step="1" />
       <label class="settings-label" for="settings-semantic-roots">${tr('Carpetas para busqueda semantica (; separado)')}</label>
       <input
         id="settings-semantic-roots"
@@ -161,6 +161,7 @@ const settingsPanel = document.querySelector<HTMLElement>("#settings-panel")!;
 const settingsRootsInput = document.querySelector<HTMLInputElement>("#settings-roots")!;
 const settingsSemanticRootsInput = document.querySelector<HTMLInputElement>("#settings-semantic-roots")!;
 const settingsMaxFilesInput = document.querySelector<HTMLInputElement>("#settings-max-files")!;
+const settingsResultsLimitInput = document.querySelector<HTMLInputElement>("#settings-results-limit")!;
 const settingsWebProviderInput = document.querySelector<HTMLInputElement>("#settings-web-provider")!;
 const settingsWebApiKeyInput = document.querySelector<HTMLInputElement>("#settings-web-api-key")!;
 const settingsStartWithWindowsInput = document.querySelector<HTMLInputElement>(
@@ -185,6 +186,7 @@ let activeSearchId = 0;
 let progressivePhaseActive = false;
 let settingsOpen = false;
 let settingsLoaded = false;
+let resultsLimit = 6;
 let selectionMode: "calculation" | "results" = "results";
 
 const iconCache = new Map<string, string | null>();
@@ -193,7 +195,7 @@ const pendingIcons = new Set<string>();
 function setIconCache(key: string, value: string | null): void {
   iconCache.delete(key); // refresca posición si ya existe
   iconCache.set(key, value);
-  if (iconCache.size > ICON_CACHE_LIMIT) {
+  if (iconCache.size > resultsLimit * 2) {
     iconCache.delete(iconCache.keys().next().value!);
   }
 }
@@ -436,9 +438,10 @@ async function runSearch(query: string): Promise<void> {
   selectedIndex = 0;
 
   try {
+    const searchLimit = Math.max(resultsLimit * 2, 12);
     const fastResponse = await invoke<SearchResponse>("search_fast", {
       query: trimmed,
-      limit: SEARCH_LIMIT,
+      limit: searchLimit,
     });
     if (!isSearchCurrent(searchId, trimmed)) {
       return;
@@ -458,7 +461,7 @@ async function runSearch(query: string): Promise<void> {
       try {
         const fullResponse = await invoke<SearchResponse>("search", {
           query: trimmed,
-          limit: SEARCH_LIMIT,
+          limit: searchLimit,
         });
         if (!isSearchCurrent(searchId, trimmed)) {
           return;
@@ -488,7 +491,7 @@ function applyResponse(response: SearchResponse, query: string): void {
   calculationResult = response.results.find((item) => item.kind === "calculation");
   nonCalculationResults = response.results
     .filter((item) => item.kind !== "calculation")
-    .slice(0, RESULTS_LIMIT);
+    .slice(0, resultsLimit);
 
   if (calculationResult) {
     selectionMode = "calculation";
@@ -550,9 +553,11 @@ async function loadSettingsIntoUI(): Promise<void> {
     settingsRootsInput.value = settings.roots.join(";");
     settingsSemanticRootsInput.value = (settings.semanticRoots ?? []).join(";");
     settingsMaxFilesInput.value = String(settings.maxFiles);
+    settingsResultsLimitInput.value = String(settings.resultsLimit ?? 6);
     settingsWebProviderInput.value = settings.webProvider ?? "";
     settingsWebApiKeyInput.value = settings.webApiKey ?? "";
     settingsStartWithWindowsInput.checked = settings.startWithWindows;
+    resultsLimit = Math.max(3, Math.min(20, settings.resultsLimit ?? 6));
     settingsLoaded = true;
   } catch (error) {
     settingsStatus.textContent = `${tr("Could not load settings")}: ${String(error)}`;
@@ -570,6 +575,8 @@ async function saveSettingsFromUI(): Promise<void> {
     .filter((value) => value.length > 0);
   const parsedMax = Number.parseInt(settingsMaxFilesInput.value, 10);
   const maxFiles = Number.isFinite(parsedMax) ? parsedMax : 25_000;
+  const parsedLimit = Number.parseInt(settingsResultsLimitInput.value, 10);
+  const resultsLimitValue = Number.isFinite(parsedLimit) ? Math.max(3, Math.min(20, parsedLimit)) : 6;
   const webProvider = settingsWebProviderInput.value.trim();
   const webApiKey = settingsWebApiKeyInput.value.trim();
   const startWithWindows = settingsStartWithWindowsInput.checked;
@@ -578,15 +585,17 @@ async function saveSettingsFromUI(): Promise<void> {
     settingsSaveButton.disabled = true;
     settingsStatus.textContent = tr("Guardando y reindexando...");
     const saved = await invoke<LauncherSettings>("save_settings", {
-      settings: { startWithWindows, roots, maxFiles, webProvider, webApiKey, semanticRoots },
+      settings: { startWithWindows, roots, maxFiles, webProvider, webApiKey, semanticRoots, resultsLimit: resultsLimitValue },
     });
 
     settingsRootsInput.value = saved.roots.join(";");
     settingsSemanticRootsInput.value = (saved.semanticRoots ?? []).join(";");
     settingsMaxFilesInput.value = String(saved.maxFiles);
+    settingsResultsLimitInput.value = String(saved.resultsLimit ?? 6);
     settingsWebProviderInput.value = saved.webProvider ?? "";
     settingsWebApiKeyInput.value = saved.webApiKey ?? "";
     settingsStartWithWindowsInput.checked = saved.startWithWindows;
+    resultsLimit = saved.resultsLimit ?? 6;
     settingsStatus.textContent = tr("Ajustes guardados y reindexado lanzado.");
     settingsLoaded = true;
   } catch (error) {

@@ -125,6 +125,7 @@ fn default_settings() -> LauncherSettings {
         theme: "system".to_string(),
         // Vacío por defecto: el usuario opta-in a indexar carpetas desde Ajustes.
         semantic_roots: vec![],
+        results_limit: 6,
     }
 }
 

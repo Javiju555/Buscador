@@ -198,6 +198,7 @@ fn build_index(
 fn normalize_settings(settings: LauncherSettings) -> LauncherSettings {
     let roots = normalize_roots(settings.roots);
     let max_files = settings.max_files.clamp(HARD_MIN_ENTRIES, HARD_MAX_ENTRIES);
+    let results_limit = settings.results_limit.clamp(3, 20);
     LauncherSettings {
         start_with_windows: settings.start_with_windows,
         roots,
@@ -206,6 +207,7 @@ fn normalize_settings(settings: LauncherSettings) -> LauncherSettings {
         web_api_key: settings.web_api_key.trim().to_string(),
         theme: settings.theme,
         semantic_roots: normalize_roots(settings.semantic_roots),
+        results_limit,
     }
 }
 
@@ -277,6 +279,7 @@ fn default_settings() -> LauncherSettings {
         web_api_key: String::new(),
         theme: "system".to_string(),
         semantic_roots: vec![],
+        results_limit: 6,
     }
 }
 

@@ -18,7 +18,7 @@ pub struct SearchService {
 impl SearchService {
     pub fn new(settings: LauncherSettings) -> Self {
         Self {
-            app_catalog: AppCatalog::new(),
+            app_catalog: AppCatalog::new(&settings.roots),
             command_catalog: CommandCatalog::new(),
             file_catalog: FileCatalog::new(settings),
             web_search: WebSearchService::new(),
@@ -30,7 +30,10 @@ impl SearchService {
     }
 
     pub fn update_launcher_settings(&self, settings: LauncherSettings) -> LauncherSettings {
-        self.file_catalog.update_settings(settings)
+        let normalized = self.file_catalog.update_settings(settings);
+        // Refrescar el catálogo de apps con las nuevas raíces en background
+        self.app_catalog.refresh_with_roots(&normalized.roots);
+        normalized
     }
 
     pub fn reindex_files(&self) {
