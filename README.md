@@ -105,6 +105,23 @@ Notes:
 - The `avx2` variant is the default because it cuts download size and startup footprint significantly on modern CPUs.
 - If a machine does not support that variant, keep `tokenizer.json` and add `model.onnx`; Buscador will fall back to it automatically.
 
+## Configuration & Settings
+
+You can open the **Settings** dialog by clicking the gear icon on the top right. Here is what each setting does:
+
+- **Root folders (Carpetas raíz)**: Semicolon-separated (`;`) list of absolute paths. These directories are recursively scanned by the fast fuzzy name indexer so you can find files and directories instantly by typing their name or path (e.g., `D:\Documents;D:\Projects`).
+- **Max files (Máximo de archivos)**: The maximum limit of files indexed by the fuzzy name indexer (defaults to `25000` to prevent excessive RAM consumption on very large drives).
+- **Folders for semantic search (Carpetas para búsqueda semántica)**: Semicolon-separated (`;`) list of paths to index for semantic content matching. The embedding engine will read the contents of files in these folders and create vectors.
+  > [!TIP]
+  > Because reading file contents and generating vector embeddings is CPU-intensive, it is recommended to scope this only to your notes or document folders (e.g., `~/Documents;~/Notes`), rather than entire disk drives.
+- **Web provider (Proveedor web)**: Semicolon-separated name of your preferred search engine (e.g., `brave` or `google`). Trigger a web search using the `w ` query prefix (e.g., `w weather in Madrid`).
+- **Web API key (API key web)**: If using `brave` search, pasting a valid Brave Search API key will show live internet results inline directly inside the launcher window, instead of opening a browser tab.
+- **Start with Windows (Iniciar con Windows)**: Toggles automatic launch at system startup.
+
+### Internationalization (i18n)
+
+Buscador supports both English (`en`) and Spanish (`es`). The language is automatically detected at startup based on your system/browser language (`navigator.language`).
+
 ## Notes
 
 - On Linux, the Tauri hooks also support Bun installed at `$HOME/.bun/bin/bun`.
