@@ -485,6 +485,7 @@ fn save_settings(
     let engine = Arc::clone(&state.embedding_engine);
     let store = Arc::clone(&state.vector_store);
     let semantic_roots = normalized.semantic_roots.clone();
+    let max_semantic = normalized.max_semantic_files;
     std::thread::spawn(move || {
         let roots = indexer::roots_from_settings(&semantic_roots);
         let Ok(mut engine_guard) = engine.lock() else {
@@ -499,7 +500,7 @@ fn save_settings(
         if roots.is_empty() {
             // Sin carpetas: limpiar archivos viejos del índice.
             let _ = store_guard.remove_by_kind("file");
-        } else if let Err(e) = indexer::index_files(&roots, &store_guard, engine, 20_000, 10) {
+        } else if let Err(e) = indexer::index_files(&roots, &store_guard, engine, max_semantic, 10) {
             log::error!("Error reindexando archivos semánticos: {e}");
         }
     });

@@ -26,6 +26,7 @@ interface LauncherSettings {
   webApiKey: string;
   semanticRoots: string[];
   resultsLimit: number;
+  maxSemanticFiles: number;
 }
 
 const COLLAPSED_HEIGHT = 92;
@@ -96,9 +97,11 @@ appRoot.innerHTML = `
         placeholder="${tr('D:\\Documentos;D:\\Proyectos')}"
       />
       <label class="settings-label" for="settings-max-files">${tr('Maximo de archivos')}</label>
-      <input id="settings-max-files" class="settings-input" type="number" min="3000" max="100000" step="500" />
+      <input id="settings-max-files" class="settings-input" type="number" min="3000" max="500000" step="1000" />
       <label class="settings-label" for="settings-results-limit">${tr('Resultados visibles (3-20)')}</label>
       <input id="settings-results-limit" class="settings-input" type="number" min="3" max="20" step="1" />
+      <label class="settings-label" for="settings-max-semantic-files">${tr('Maximo de archivos semanticos')}</label>
+      <input id="settings-max-semantic-files" class="settings-input" type="number" min="1000" max="150000" step="1000" />
       <label class="settings-label" for="settings-semantic-roots">${tr('Carpetas para busqueda semantica (; separado)')}</label>
       <input
         id="settings-semantic-roots"
@@ -162,6 +165,7 @@ const settingsRootsInput = document.querySelector<HTMLInputElement>("#settings-r
 const settingsSemanticRootsInput = document.querySelector<HTMLInputElement>("#settings-semantic-roots")!;
 const settingsMaxFilesInput = document.querySelector<HTMLInputElement>("#settings-max-files")!;
 const settingsResultsLimitInput = document.querySelector<HTMLInputElement>("#settings-results-limit")!;
+const settingsMaxSemanticFilesInput = document.querySelector<HTMLInputElement>("#settings-max-semantic-files")!;
 const settingsWebProviderInput = document.querySelector<HTMLInputElement>("#settings-web-provider")!;
 const settingsWebApiKeyInput = document.querySelector<HTMLInputElement>("#settings-web-api-key")!;
 const settingsStartWithWindowsInput = document.querySelector<HTMLInputElement>(
@@ -554,6 +558,7 @@ async function loadSettingsIntoUI(): Promise<void> {
     settingsSemanticRootsInput.value = (settings.semanticRoots ?? []).join(";");
     settingsMaxFilesInput.value = String(settings.maxFiles);
     settingsResultsLimitInput.value = String(settings.resultsLimit ?? 6);
+    settingsMaxSemanticFilesInput.value = String(settings.maxSemanticFiles ?? 20_000);
     settingsWebProviderInput.value = settings.webProvider ?? "";
     settingsWebApiKeyInput.value = settings.webApiKey ?? "";
     settingsStartWithWindowsInput.checked = settings.startWithWindows;
@@ -577,6 +582,8 @@ async function saveSettingsFromUI(): Promise<void> {
   const maxFiles = Number.isFinite(parsedMax) ? parsedMax : 25_000;
   const parsedLimit = Number.parseInt(settingsResultsLimitInput.value, 10);
   const resultsLimitValue = Number.isFinite(parsedLimit) ? Math.max(3, Math.min(20, parsedLimit)) : 6;
+  const parsedSemanticMax = Number.parseInt(settingsMaxSemanticFilesInput.value, 10);
+  const maxSemanticFiles = Number.isFinite(parsedSemanticMax) ? parsedSemanticMax : 20_000;
   const webProvider = settingsWebProviderInput.value.trim();
   const webApiKey = settingsWebApiKeyInput.value.trim();
   const startWithWindows = settingsStartWithWindowsInput.checked;
@@ -585,13 +592,14 @@ async function saveSettingsFromUI(): Promise<void> {
     settingsSaveButton.disabled = true;
     settingsStatus.textContent = tr("Guardando y reindexando...");
     const saved = await invoke<LauncherSettings>("save_settings", {
-      settings: { startWithWindows, roots, maxFiles, webProvider, webApiKey, semanticRoots, resultsLimit: resultsLimitValue },
+      settings: { startWithWindows, roots, maxFiles, webProvider, webApiKey, semanticRoots, resultsLimit: resultsLimitValue, maxSemanticFiles },
     });
 
     settingsRootsInput.value = saved.roots.join(";");
     settingsSemanticRootsInput.value = (saved.semanticRoots ?? []).join(";");
     settingsMaxFilesInput.value = String(saved.maxFiles);
     settingsResultsLimitInput.value = String(saved.resultsLimit ?? 6);
+    settingsMaxSemanticFilesInput.value = String(saved.maxSemanticFiles ?? 20_000);
     settingsWebProviderInput.value = saved.webProvider ?? "";
     settingsWebApiKeyInput.value = saved.webApiKey ?? "";
     settingsStartWithWindowsInput.checked = saved.startWithWindows;

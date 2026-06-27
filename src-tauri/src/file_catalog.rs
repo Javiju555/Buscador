@@ -10,7 +10,7 @@ use crate::models::{LauncherSettings, SearchResult, SearchResultKind};
 use crate::text_matcher::{normalize, score, split_terms};
 
 const DEFAULT_MAX_ENTRIES: usize = 25_000;
-const HARD_MAX_ENTRIES: usize = 100_000;
+const HARD_MAX_ENTRIES: usize = 500_000;
 const HARD_MIN_ENTRIES: usize = 3_000;
 const MAX_DEPTH: usize = 8;
 
@@ -199,6 +199,7 @@ fn normalize_settings(settings: LauncherSettings) -> LauncherSettings {
     let roots = normalize_roots(settings.roots);
     let max_files = settings.max_files.clamp(HARD_MIN_ENTRIES, HARD_MAX_ENTRIES);
     let results_limit = settings.results_limit.clamp(3, 20);
+    let max_semantic_files = settings.max_semantic_files.clamp(1_000, 150_000);
     LauncherSettings {
         start_with_windows: settings.start_with_windows,
         roots,
@@ -208,6 +209,7 @@ fn normalize_settings(settings: LauncherSettings) -> LauncherSettings {
         theme: settings.theme,
         semantic_roots: normalize_roots(settings.semantic_roots),
         results_limit,
+        max_semantic_files,
     }
 }
 
@@ -280,6 +282,7 @@ fn default_settings() -> LauncherSettings {
         theme: "system".to_string(),
         semantic_roots: vec![],
         results_limit: 6,
+        max_semantic_files: 20_000,
     }
 }
 

@@ -58,6 +58,9 @@ pub struct LauncherSettings {
     /// Número de resultados visibles en el lanzador (3-20). Por defecto 6.
     #[serde(default = "default_results_limit")]
     pub results_limit: usize,
+    /// Límite máximo de archivos a indexar semánticamente. Por defecto 20,000.
+    #[serde(default = "default_max_semantic_files")]
+    pub max_semantic_files: usize,
 }
 
 fn default_theme() -> String {
@@ -66,4 +69,8 @@ fn default_theme() -> String {
 
 fn default_results_limit() -> usize {
     6
+}
+
+fn default_max_semantic_files() -> usize {
+    20_000
 }

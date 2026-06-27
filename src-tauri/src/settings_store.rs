@@ -126,6 +126,7 @@ fn default_settings() -> LauncherSettings {
         // Vacío por defecto: el usuario opta-in a indexar carpetas desde Ajustes.
         semantic_roots: vec![],
         results_limit: 6,
+        max_semantic_files: 20_000,
     }
 }
 
