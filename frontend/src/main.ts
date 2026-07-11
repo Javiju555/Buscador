@@ -32,8 +32,8 @@ interface LauncherSettings {
 const COLLAPSED_HEIGHT = 92;
 const MAX_WINDOW_HEIGHT = 680;
 const FULL_SEARCH_DELAY_MS = 130;
-const INPUT_FOCUS_RETRIES = 5;
-const INPUT_FOCUS_RETRY_DELAY_MS = 50;
+const INPUT_FOCUS_RETRIES = 30;
+const INPUT_FOCUS_RETRY_DELAY_MS = 100;
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
 if (!appElement) {

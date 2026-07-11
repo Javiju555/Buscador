@@ -41,13 +41,33 @@ pub mod portal_shortcut;
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const KEEPALIVE_WINDOW_LABEL: &str = "__buscador_keepalive";
+// En Windows destruimos el WebView al ocultar (recrear en el siguiente
+// Ctrl+Space es imperceptible y libera toda la memoria). En el resto de
+// plataformas se deja el comportamiento original (hide, no destroy).
+#[cfg(target_os = "windows")]
+const AGGRESSIVE_IDLE_MODE: bool = true;
+#[cfg(not(target_os = "windows"))]
 const AGGRESSIVE_IDLE_MODE: bool = false;
+#[cfg(not(target_os = "windows"))]
 const FOCUS_HIDE_DEBOUNCE_MS: u64 = 140;
+#[cfg(target_os = "windows")]
+const FOCUS_HIDE_DEBOUNCE_MS: u64 = 350;
+#[cfg(not(target_os = "windows"))]
 const FOCUS_RETRY_DELAYS_MS: [u64; 1] = [50];
+#[cfg(target_os = "windows")]
+const FOCUS_RETRY_DELAYS_MS: [u64; 6] = [50, 100, 200, 400, 700, 1000];
 const FOCUS_GUARD_POLL_MS: u64 = 120;
+#[cfg(not(target_os = "windows"))]
 const FOCUS_GUARD_HIDE_AFTER_MS: u64 = 900;
+#[cfg(target_os = "windows")]
+const FOCUS_GUARD_HIDE_AFTER_MS: u64 = 600;
 const FOCUS_GUARD_MAX_MS: u64 = 12_000;
+#[cfg(not(target_os = "windows"))]
 const BLUR_CLOSE_GRACE_AFTER_SHOW_MS: u64 = 200;
+#[cfg(target_os = "windows")]
+const BLUR_CLOSE_GRACE_AFTER_SHOW_MS: u64 = 1000;
+#[cfg(target_os = "windows")]
+const BLUR_CLOSE_GRACE_IF_UNFOCUSED_MS: u64 = 1200;
 
 struct AppState {
     search_service: Arc<SearchService>,
@@ -644,6 +664,33 @@ fn cursor_inside_window(window: &WebviewWindow) -> bool {
     }
 }
 
+/// Indica si nuestra ventana de nivel superior sigue siendo la ventana en
+/// primer plano del sistema (`GetForegroundWindow`).
+///
+/// A diferencia de `WebviewWindow::is_focused()` (que en Windows depende de
+/// WM_SETFOCUS/WM_KILLFOCUS del HWND de nivel superior via tao), este check
+/// NO cambia cuando el foco de teclado se mueve entre nuestra ventana y su
+/// propio WebView2 hijo (necesario para que el input reciba teclado): mover
+/// foco a un hijo genera WM_KILLFOCUS en el padre aunque la app siga activa,
+/// lo que hace que `is_focused()` reporte falsos "blur" cada vez que
+/// enfocamos el webview. `GetForegroundWindow()` solo cambia cuando el
+/// usuario realmente activa OTRA ventana de nivel superior (otra app), que es
+/// la señal que de verdad queremos para decidir si ocultar el launcher.
+#[cfg(target_os = "windows")]
+fn window_has_os_foreground(window: &WebviewWindow) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+    let Ok(hwnd) = window.hwnd() else {
+        return false;
+    };
+    unsafe { GetForegroundWindow().0 == hwnd.0 }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn window_has_os_foreground(window: &WebviewWindow) -> bool {
+    window.is_focused().unwrap_or(false)
+}
+
 fn execute_payload(payload: ExecutePayload) -> Result<()> {
     match payload.kind {
         SearchResultKind::App => {
@@ -990,6 +1037,7 @@ fn attach_main_window_handlers(window: &WebviewWindow, app: &tauri::AppHandle) {
 
     window.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Focused(true)) {
+            log::info!("[focus] WindowEvent::Focused(true)");
             app_handle
                 .state::<AppState>()
                 .focused_since_show
@@ -998,6 +1046,7 @@ fn attach_main_window_handlers(window: &WebviewWindow, app: &tauri::AppHandle) {
         }
 
         if matches!(event, tauri::WindowEvent::Focused(false)) {
+            log::info!("[focus] WindowEvent::Focused(false); programando debounce de hide en {FOCUS_HIDE_DEBOUNCE_MS}ms");
             let window = window_ref.clone();
             let app = app_handle.clone();
             std::thread::spawn(move || {
@@ -1008,22 +1057,41 @@ fn attach_main_window_handlers(window: &WebviewWindow, app: &tauri::AppHandle) {
                         .load(Ordering::Acquire),
                 );
                 if elapsed_from_show < BLUR_CLOSE_GRACE_AFTER_SHOW_MS {
+                    log::info!("[focus] blur-handler: dentro de gracia post-show ({elapsed_from_show}ms < {BLUR_CLOSE_GRACE_AFTER_SHOW_MS}ms); no oculta");
                     return;
                 }
 
                 let still_visible = window.is_visible().unwrap_or(false);
-                let still_unfocused = !window.is_focused().unwrap_or(false);
+                let still_unfocused = !window_has_os_foreground(&window);
                 if still_visible && still_unfocused {
                     if cursor_inside_window(&window) {
+                        log::info!("[focus] blur-handler: cursor sigue dentro de la ventana; no oculta");
                         return;
                     }
 
+                    #[cfg(target_os = "windows")]
+                    {
+                        let got_focus_before = app
+                            .state::<AppState>()
+                            .focused_since_show
+                            .load(Ordering::Acquire);
+                        if !got_focus_before
+                            && elapsed_from_show < BLUR_CLOSE_GRACE_IF_UNFOCUSED_MS
+                        {
+                            log::info!("[focus] blur-handler: nunca se enfocó y sigue en gracia ({elapsed_from_show}ms < {BLUR_CLOSE_GRACE_IF_UNFOCUSED_MS}ms); no oculta");
+                            return;
+                        }
+                    }
+
+                    log::info!("[focus] blur-handler: OCULTANDO ventana (visible={still_visible}, unfocused={still_unfocused}, elapsed_from_show={elapsed_from_show}ms)");
                     if AGGRESSIVE_IDLE_MODE {
                         window.destroy().ok();
                     } else {
                         window.hide().ok();
                     }
                     enter_idle_mode(&app);
+                } else {
+                    log::info!("[focus] blur-handler: ya no aplica (visible={still_visible}, unfocused={still_unfocused})");
                 }
             });
         }
@@ -1204,6 +1272,54 @@ fn ensure_keepalive_window(app: &tauri::AppHandle) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn force_focus_on_windows(_app: &tauri::AppHandle, window: &WebviewWindow) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, GetForegroundWindow, SetForegroundWindow, ShowWindow, SW_SHOW,
+    };
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        keybd_event, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+    };
+
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+
+    // Llamada directa y síncrona: en el camino del hotkey global (WM_HOTKEY)
+    // ya estamos en el hilo principal y Windows concede permiso de
+    // SetForegroundWindow mientras se procesa ese mensaje. Despachar esto via
+    // run_on_main_thread (que siempre reencola de forma asíncrona) rompía esa
+    // ventana de privilegio y dejaba el foco a merced únicamente del hack de
+    // keybd_event, que es poco fiable.
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOW);
+
+        let foreground = GetForegroundWindow();
+        if foreground.0 != hwnd.0 {
+            keybd_event(0, 0, KEYBD_EVENT_FLAGS(0), 0);
+            keybd_event(0, 0, KEYBD_EVENT_FLAGS(KEYEVENTF_KEYUP.0), 0);
+
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+
+    window.set_focus().ok();
+
+    // `Window::set_focus()` solo enfoca el HWND de nivel superior. En Windows,
+    // WebView2 es un control hijo con su propio gestor de foco: que la ventana
+    // contenedora tenga el foco/primer plano del SO no basta para que el
+    // teclado llegue al <input> dentro del webview. Hay que pedírselo también
+    // al webview explícitamente via `Webview::set_focus()` (wry -> webview.focus()).
+    let webview: &tauri::Webview<_> = window.as_ref();
+    webview.set_focus().ok();
+}
+
+#[cfg(not(target_os = "windows"))]
+fn force_focus_on_windows(_app: &tauri::AppHandle, window: &WebviewWindow) {
+    window.set_focus().ok();
+}
+
 fn show_main_window(app: &tauri::AppHandle, window: &WebviewWindow) {
     app.state::<AppState>()
         .last_show_millis
@@ -1215,7 +1331,7 @@ fn show_main_window(app: &tauri::AppHandle, window: &WebviewWindow) {
     window.set_focusable(true).ok();
     center_on_active_monitor(window).ok();
     window.show().ok();
-    window.set_focus().ok();
+    force_focus_on_windows(app, window);
     window.emit("launcher-show", ()).ok();
 
     let search_service = Arc::clone(&app.state::<AppState>().search_service);
@@ -1225,9 +1341,19 @@ fn show_main_window(app: &tauri::AppHandle, window: &WebviewWindow) {
 
     for delay in FOCUS_RETRY_DELAYS_MS {
         let window_clone = window.clone();
+        let app_clone = app.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(delay));
-            window_clone.set_focus().ok();
+            // Si ya está enfocada, no insistir: volver a pedir el foco (incluso
+            // via webview.focus()) cuando ya lo tenemos perturba momentáneamente
+            // el gestor de foco de WebView2 (parpadeo visible) y puede dejar el
+            // último reintento a medias, provocando un blur real que el
+            // hide-on-blur acaba interpretando como "el usuario se fue".
+            if window_has_os_foreground(&window_clone) {
+                log::info!("[focus] retry({delay}ms): ya en primer plano, se omite el reintento");
+                return;
+            }
+            force_focus_on_windows(&app_clone, &window_clone);
         });
     }
 
@@ -1248,7 +1374,7 @@ fn show_main_window(app: &tauri::AppHandle, window: &WebviewWindow) {
                 break;
             }
 
-            let focused = window_clone.is_focused().unwrap_or(false);
+            let focused = window_has_os_foreground(&window_clone);
             if focused {
                 app_handle
                     .state::<AppState>()
@@ -1261,6 +1387,21 @@ fn show_main_window(app: &tauri::AppHandle, window: &WebviewWindow) {
             if cursor_inside_window(&window_clone) {
                 unfocused_since = None;
                 continue;
+            }
+
+            // Este guard solo debe cerrar la ventana si el foco nunca llegó a
+            // conseguirse tras mostrarla (p.ej. SetForegroundWindow falló). Si ya
+            // se enfocó alguna vez, un blip momentáneo de is_focused()==false
+            // (frecuente con WebView2 justo tras robar el foco) no debe cerrarla:
+            // eso queda en manos del hide-on-blur basado en eventos de
+            // attach_main_window_handlers, que además espera a un blur real.
+            let got_focus_before = app_handle
+                .state::<AppState>()
+                .focused_since_show
+                .load(Ordering::Acquire);
+            if got_focus_before {
+                log::info!("[focus] guard: ya se habia enfocado antes; el guard se retira y deja el hide-on-blur al handler de eventos");
+                break;
             }
 
             let elapsed_from_show = now_millis().saturating_sub(
@@ -1278,6 +1419,7 @@ fn show_main_window(app: &tauri::AppHandle, window: &WebviewWindow) {
                 continue;
             }
 
+            log::info!("[focus] guard: OCULTANDO ventana (nunca se enfocó desde que se mostró, elapsed_from_show={elapsed_from_show}ms)");
             if AGGRESSIVE_IDLE_MODE {
                 window_clone.destroy().ok();
             } else {

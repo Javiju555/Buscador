@@ -1,6 +1,6 @@
 [package]
 name = "buscador_tauri"
-version = "0.1.4"
+version = "0.1.5"
 description = "Buscador launcher style Spotlight"
 authors = ["Buscador"]
 license = "AGPL-3.0-only"
@@ -59,6 +59,7 @@ windows = { version = "0.61", features = [
   "Win32_System_Com",
   "Win32_System_ProcessStatus",
   "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
   "Win32_UI_Shell_Common",
   "Win32_UI_WindowsAndMessaging"
