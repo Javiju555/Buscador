@@ -15,9 +15,9 @@ jobs:
       matrix:
         include:
           - platform: 'ubuntu-22.04'
-            targets: 'deb,rpm,appimage'
+            args: '--targets deb,rpm,appimage'
           - platform: 'windows-latest'
-            targets: 'msi,nsis'
+            args: '--targets msi,nsis'
 
     runs-on: ${{ matrix.platform }}
 
@@ -69,7 +69,4 @@ jobs:
           releaseBody: 'See the assets below for native installers.'
           releaseDraft: false
           prerelease: false
-          includeDebug: false
-          includeRelease: true
-          includeUpdaterJson: false
-          args: '--targets ${{ matrix.targets }}'
+          args: ${{ matrix.args }}
