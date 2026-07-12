@@ -15,9 +15,9 @@ jobs:
       matrix:
         include:
           - platform: 'ubuntu-22.04'
-            args: '--targets deb,rpm,appimage'
+            args: '--bundles deb,rpm,appimage'
           - platform: 'windows-latest'
-            args: '--targets msi,nsis'
+            args: '--bundles msi,nsis'
 
     runs-on: ${{ matrix.platform }}
 
