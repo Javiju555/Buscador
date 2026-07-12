@@ -63,6 +63,8 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CFLAGS: '-std=c17'
+          CXXFLAGS: '-std=c++17'
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Buscador v__VERSION__'
