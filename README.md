@@ -130,4 +130,4 @@ Buscador supports both English (`en`) and Spanish (`es`). The language is automa
 
 ## License
 
-[AGPL-3.0-only](LICENSE)
+[MIT](LICENSE)
