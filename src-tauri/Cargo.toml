@@ -1,6 +1,6 @@
 [package]
 name = "buscador_tauri"
-version = "0.1.5"
+version = "0.1.6"
 description = "Buscador launcher style Spotlight"
 authors = ["Buscador"]
 license = "MIT"
@@ -78,4 +78,3 @@ strip = true
 
 [patch.crates-io]
 esaxx-rs = { path = "../third_party/esaxx-rs" }
-

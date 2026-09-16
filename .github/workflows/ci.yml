@@ -62,8 +62,8 @@ jobs:
 
       - name: Cargo check
         working-directory: src-tauri
-        run: cargo check
+        run: cargo check --locked
 
       - name: Vector store tests
         working-directory: src-tauri
-        run: cargo test vector_store -- --nocapture
+        run: cargo test --locked vector_store -- --nocapture
