@@ -1,11 +1,29 @@
-dist/
-.claude/
-docs/superpowers/
-frontend/dist/
+# Frontend dependencies and generated assets
 frontend/node_modules/
+frontend/dist/
+
+# Rust build output (including src-tauri/target)
 target/
-src-tauri/target/
+
+# Local binaries, models and application data
+bin/
 models/
 *.db
+*.db-shm
+*.db-wal
+
+# Local development and agent state
+.claude/
+docs/superpowers/
+poc/
 scratch/
-*.txt
+*.log
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

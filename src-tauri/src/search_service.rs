@@ -97,7 +97,6 @@ impl SearchService {
             };
         }
 
-        // Temporary placeholder — replaced in Task 4
         if mode == SearchMode::Path {
             return SearchResponse {
                 results: build_path_results(&query, limit),

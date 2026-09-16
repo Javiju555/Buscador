@@ -1,9 +1,9 @@
-//! HTTP API para que agentes (Nexus, Blazer, Argos) llamen a Buscador.
+//! Local HTTP API for integrations to query and index Buscador data.
 //!
 //! Corre en un background thread dentro del proceso Tauri.
 //! Endpoints:
 //!   GET  /search?q=...&limit=10&mode=hybrid|fuzzy|semantic
-//!   POST /index  — recibir items para indexar (desde Nexus/Argos)
+//!   POST /index  — receive items to index
 //!   GET  /stats  — estadísticas del vector store
 //!   GET  /health — liveness check
 //!
@@ -430,7 +430,7 @@ async fn reindex_handler(AxumState(state): AxumState<HttpState>) -> impl IntoRes
         .into_response()
 }
 
-/// POST /index — Indexar items enviados desde Nexus/Argos.
+/// POST /index — Index items supplied by a local integration.
 ///
 /// Recibe items con embeddings pre-calculados (o texto para generarlos).
 async fn index_handler(

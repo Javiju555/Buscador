@@ -413,7 +413,7 @@ fn chrono_now_millis() -> i64 {
         .as_millis() as i64
 }
 
-/// Retorna el puerto del HTTP server para que agentes puedan conectarse.
+/// Returns the local HTTP server port for integrations.
 #[tauri::command]
 fn get_http_port(state: tauri::State<'_, AppState>) -> u16 {
     state.http_port

@@ -1,132 +1,160 @@
 # Buscador
 
-Spotlight-style launcher for Windows and Linux.
+[![CI](https://github.com/Javiju555/Buscador/actions/workflows/ci.yml/badge.svg)](https://github.com/Javiju555/Buscador/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Javiju555/Buscador?display_name=tag)](https://github.com/Javiju555/Buscador/releases/latest)
+[![License](https://img.shields.io/github/license/Javiju555/Buscador)](LICENSE)
 
-Buscador searches apps, commands and files, opens results fast and includes inline calculator behavior for quick queries. It started as part of the Fenix desktop environment, but it is useful enough to stand on its own as a small launcher project.
+Buscador is a fast, keyboard-first launcher for Windows and Linux. Search applications, commands, files and folders from one small window, open a full filesystem path, calculate an expression, or search the web without leaving the keyboard.
 
-## Status
+It is built with Tauri 2, Rust, TypeScript and Bun. Semantic search is optional and runs locally with an ONNX embedding model.
 
-- Daily-use app
-- Windows and Linux supported
-- GNOME and Wayland flows are regularly exercised
-- KDE should be possible, but it is not part of the regular validation loop yet
-- Some older GNOME-specific integration files are still kept in the repository for compatibility
+## Highlights
 
-## Features
+- Global shortcut launcher with native app icons.
+- Application and command search.
+- Fast file-name indexing with configurable roots.
+- Full-path navigation with directory and file autocomplete.
+- Local hybrid fuzzy + semantic search.
+- Inline calculator and optional web search.
+- Autostart support on Windows and Linux.
+- Optional GNOME Shell companion extension for hiding the launcher from the dock and window switcher.
 
-- Global shortcut launcher
-- App search
-- Command search
-- File indexing and search
-- Filesystem path navigation with autocomplete
-- Semantic search with local ONNX embeddings
-- Inline calculator mode
-- Optional web search mode
-- Native icons
-- Autostart support on Windows and Linux
+## Install
 
-## Query Modes
+Download the latest native package from the [Releases page](https://github.com/Javiju555/Buscador/releases/latest):
 
-- Default: mixed search
-- `>text`: commands
-- `/text`: files
-- `=expr`: calculator
-- `w text`: web search
-- Absolute path (e.g. `/home/user/docs` or `C:\Users\`): filesystem navigation with prefix autocomplete
+- **Windows:** install the `.msi` package or use the NSIS installer.
+- **Debian/Ubuntu:** install the `.deb` package.
+- **Fedora/openSUSE:** install the `.rpm` package.
+- **Other Linux distributions:** run the `.AppImage`.
 
-## Stack
+The release workflow publishes Windows and Linux installers for every `v*` tag.
 
-- Frontend: Vite + TypeScript + Bun
-- Backend: Tauri v2 + Rust
+## How to use it
 
-## Build
+Press `Ctrl+Space` to show or hide the launcher. Type a query and press `Enter` to open the selected result.
+
+| Input | Action |
+| --- | --- |
+| `firefox` | Search applications, commands and indexed files. |
+| `>cargo` | Search commands only. |
+| `/report` | Search files by name. |
+| `=23 * 7` | Calculate an expression. |
+| `w weather in Madrid` | Search the web. |
+| `/home/user/Doc` | Navigate a Linux path and autocomplete children. |
+| `C:\Users\me\Doc` | Navigate a Windows path and autocomplete children. |
+
+### Opening paths and folders
+
+Yes, path navigation is supported. Enter an absolute path and Buscador will show the exact file or folder when it exists, followed by matching children. Add a trailing slash (or backslash on Windows) to list the contents of a directory.
+
+Examples:
+
+```text
+/home/javier/Downloads/
+/home/javier/Downloads/report
+C:\Users\Javier\Documents\
+```
+
+You can also type common directory aliases directly:
+
+```text
+home       documents       downloads       desktop
+config     data            cache            temp
+```
+
+Aliases resolve to the current user's directories. A bare folder name is found when it belongs to an indexed root; an absolute path always uses direct filesystem navigation and does not depend on indexing.
+
+## Settings
+
+Open the gear button to configure the launcher:
+
+- **Root folders:** directories scanned for fast file-name search.
+- **Maximum files:** upper bound for the file-name index.
+- **Semantic folders:** directories whose file names, paths and short previews of supported text files are included in semantic search.
+- **Results limit:** number of visible results.
+- **Web provider and API key:** optional live web search configuration.
+- **Start at login:** enable or disable autostart.
+
+Settings are stored at:
+
+- Linux: `${XDG_CONFIG_HOME:-$HOME/.config}/fenix/buscador.json`.
+- Windows: `%LOCALAPPDATA%\BuscadorLauncher\settings.json`.
+
+The Linux `fenix` directory is a compatibility namespace used by existing installations.
+
+## Semantic search
+
+Semantic search is optional. Without a model, normal fuzzy search and path navigation continue to work.
+
+The preferred model is IBM Granite multilingual embeddings in ONNX format:
+
+- `model_quint8_avx2.onnx` (smaller, preferred on modern CPUs).
+- `model.onnx` (fallback).
+- `tokenizer.json`.
+
+Download it with one of the included helpers:
+
+```bash
+./scripts/fetch-embedding-model.sh
+```
+
+```powershell
+.\scripts\fetch-embedding-model.ps1
+```
+
+See [the architecture guide](docs/architecture.md) for the indexing boundaries and [the HTTP API reference](docs/http-api.md) for integrations.
+
+## Linux integration
+
+The repository includes a local installer that builds a release binary and creates the desktop entry, autostart entry and `Ctrl+Space` shortcut:
+
+```bash
+./scripts/install-local-linux.sh
+```
+
+For prerequisites, development setup and troubleshooting, read [docs/linux.md](docs/linux.md). The optional GNOME Shell integration is documented in [docs/gnome-shell-extension.md](docs/gnome-shell-extension.md).
+
+## Development
 
 Requirements:
 
-- Rust toolchain
-- Bun
-- Tauri prerequisites for your platform
+- Rust stable and Cargo.
+- Bun.
+- Tauri 2 Linux or Windows prerequisites.
 
-Development:
+Install frontend dependencies and run the development app:
 
 ```bash
-cd src-tauri
+cd frontend
+bun install --frozen-lockfile
+cd ../src-tauri
 cargo tauri dev --no-watch
 ```
 
-Release build:
+Build a release locally:
 
 ```bash
 cd src-tauri
 cargo tauri build
 ```
 
-## Local Embeddings
-
-Buscador can load the IBM Granite multilingual embedding model locally to power semantic matching and hybrid fuzzy + vector ranking.
-
-- Preferred model: `onnx/model_quint8_avx2.onnx` from `ibm-granite/granite-embedding-97m-multilingual-r2`
-- Fallback model: `onnx/model.onnx`
-- Tokenizer: `tokenizer.json`
-- Embedding size: 384 dimensions
-
-The loader prefers the 8-bit model automatically because it is much smaller, and falls back to the 32-bit model if that is the only file present.
-
-Expected install directory:
-
-- Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/buscador/models/granite-embedding-97m`
-- Windows: `%LOCALAPPDATA%\buscador\models\granite-embedding-97m`
-
-Install helpers:
+Run the Rust checks and tests:
 
 ```bash
-./scripts/fetch-embedding-model.sh
-./scripts/fetch-embedding-model.sh model.onnx
+cd src-tauri
+cargo check
+cargo test vector_store -- --nocapture
 ```
 
-```powershell
-./scripts/fetch-embedding-model.ps1
-./scripts/fetch-embedding-model.ps1 -ModelFile model.onnx
-```
+The CI workflow runs these checks on Ubuntu and Windows. Release packages are generated by [`.github/workflows/release.yml`](.github/workflows/release.yml) when a `v*` tag is pushed.
 
-Optional override:
+## Project documentation
 
-```bash
-export BUSCADOR_EMBEDDING_MODEL=model.onnx
-```
-
-```powershell
-$env:BUSCADOR_EMBEDDING_MODEL = "model_quint8_avx2.onnx"
-```
-
-Notes:
-
-- `model_quint8_avx2.onnx` is about 98 MB in the upstream Hugging Face repository, while `model.onnx` is about 390 MB.
-- The `avx2` variant is the default because it cuts download size and startup footprint significantly on modern CPUs.
-- If a machine does not support that variant, keep `tokenizer.json` and add `model.onnx`; Buscador will fall back to it automatically.
-
-## Configuration & Settings
-
-You can open the **Settings** dialog by clicking the gear icon on the top right. Here is what each setting does:
-
-- **Root folders (Carpetas raíz)**: Semicolon-separated (`;`) list of absolute paths. These directories are recursively scanned by the fast fuzzy name indexer so you can find files and directories instantly by typing their name or path (e.g., `D:\Documents;D:\Projects`).
-- **Max files (Máximo de archivos)**: The maximum limit of files indexed by the fuzzy name indexer (defaults to `25000` to prevent excessive RAM consumption on very large drives).
-- **Folders for semantic search (Carpetas para búsqueda semántica)**: Semicolon-separated (`;`) list of paths to index for semantic content matching. The embedding engine will read the contents of files in these folders and create vectors.
-  > [!TIP]
-  > Because reading file contents and generating vector embeddings is CPU-intensive, it is recommended to scope this only to your notes or document folders (e.g., `~/Documents;~/Notes`), rather than entire disk drives.
-- **Web provider (Proveedor web)**: Semicolon-separated name of your preferred search engine (e.g., `brave` or `google`). Trigger a web search using the `w ` query prefix (e.g., `w weather in Madrid`).
-- **Web API key (API key web)**: If using `brave` search, pasting a valid Brave Search API key will show live internet results inline directly inside the launcher window, instead of opening a browser tab.
-- **Start with Windows (Iniciar con Windows)**: Toggles automatic launch at system startup.
-
-### Internationalization (i18n)
-
-Buscador supports both English (`en`) and Spanish (`es`). The language is automatically detected at startup based on your system/browser language (`navigator.language`).
-
-## Notes
-
-- On Linux, the Tauri hooks also support Bun installed at `$HOME/.bun/bin/bun`.
-- The repository still contains a legacy GNOME extension and setup notes because some users still rely on that path.
-- Web search is optional and works without an API key by falling back to opening the browser search.
+- [Architecture and data flow](docs/architecture.md)
+- [Local HTTP API](docs/http-api.md)
+- [Linux setup and installation](docs/linux.md)
+- [GNOME Shell companion](docs/gnome-shell-extension.md)
 
 ## License
 
