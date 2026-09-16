@@ -41,7 +41,7 @@ dirs = "6"
 
 # Semantic search — embedding engine + vector store
 ort = "2.0.0-rc.12"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 tokenizers = "0.20"
 ndarray = "0.17"
 
