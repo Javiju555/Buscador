@@ -47,7 +47,7 @@ ndarray = "0.17"
 
 # HTTP API for agent integration
 axum = "0.8"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.7", features = ["cors"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
