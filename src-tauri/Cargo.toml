@@ -37,7 +37,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 futures-lite = "2"
 tokio = { version = "1", features = ["rt"] }
 urlencoding = "2.1.3"
-dirs = "6"
+dirs = "7"
 
 # Semantic search — embedding engine + vector store
 ort = "2.0.0-rc.12"
