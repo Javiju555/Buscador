@@ -41,6 +41,17 @@ jobs:
             exit 0
           fi
 
+          merge_state="$(gh pr view "$pr_number" \
+            --repo "$REPOSITORY" \
+            --json mergeStateStatus \
+            --jq .mergeStateStatus)"
+
+          if [[ "$merge_state" == "BEHIND" ]]; then
+            echo "Updating $HEAD_BRANCH before the next CI run"
+            gh pr update-branch "$pr_number" --repo "$REPOSITORY" --rebase
+            exit 0
+          fi
+
           gh pr merge "$pr_number" \
             --repo "$REPOSITORY" \
             --squash \
