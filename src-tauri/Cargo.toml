@@ -51,7 +51,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_Storage_FileSystem",
