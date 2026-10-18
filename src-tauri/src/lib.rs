@@ -88,7 +88,7 @@ struct AppState {
     http_port: u16,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn search(
     query: String,
     limit: Option<usize>,
@@ -126,7 +126,7 @@ fn search(
     response
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn search_fast(
     query: String,
     limit: Option<usize>,
@@ -255,7 +255,7 @@ fn merge_semantic_results(
 /// Búsqueda puramente semántica (sin fuzzy).
 ///
 /// Retorna resultados con su cosine similarity.
-#[tauri::command]
+#[tauri::command(async)]
 fn semantic_search(
     query: String,
     limit: Option<usize>,
@@ -303,7 +303,7 @@ fn semantic_search(
 /// Re-indexa items en el vector store.
 ///
 /// Genera embeddings para todas las apps indexadas.
-#[tauri::command]
+#[tauri::command(async)]
 fn reindex_vectors(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let mut engine_guard = state
         .embedding_engine
@@ -364,7 +364,7 @@ fn reindex_vectors(state: tauri::State<'_, AppState>) -> Result<String, String> 
 }
 
 /// Retorna estadísticas del vector store.
-#[tauri::command]
+#[tauri::command(async)]
 fn vector_store_stats(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     let store_guard = state
         .vector_store
@@ -569,7 +569,7 @@ struct GridAppEntry {
     desktop_path: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_apps(state: tauri::State<'_, AppState>) -> Vec<GridAppEntry> {
     state
         .search_service
@@ -583,7 +583,7 @@ fn get_apps(state: tauri::State<'_, AppState>) -> Vec<GridAppEntry> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn resolve_icon(path: String, state: tauri::State<'_, AppState>) -> Option<String> {
     let path = path.trim();
     if path.is_empty() {
@@ -596,7 +596,12 @@ fn resolve_icon(path: String, state: tauri::State<'_, AppState>) -> Option<Strin
         }
     }
 
+    let started = std::time::Instant::now();
     let resolved = icon::resolve_icon(path);
+    let elapsed = started.elapsed();
+    if elapsed.as_millis() >= 100 {
+        log::warn!("resolve_icon lento: {} ms para {path}", elapsed.as_millis());
+    }
     if let Ok(mut cache) = state.icon_cache.lock() {
         cache.insert(path.to_string(), resolved.clone());
     }
