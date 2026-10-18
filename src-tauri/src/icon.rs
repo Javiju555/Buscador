@@ -484,8 +484,24 @@ fn is_supported_icon_file(path: &Path) -> bool {
         )
 }
 
+/// Icons are resolved on Tauri's worker threads, not the UI thread, and the
+/// shell icon handlers expect an initialised COM apartment on the calling thread.
+#[cfg(target_os = "windows")]
+fn ensure_com_apartment() {
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+
+    thread_local! {
+        static COM_READY: () = unsafe {
+            // Ignore the result: S_FALSE / RPC_E_CHANGED_MODE both mean COM is usable.
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        };
+    }
+    COM_READY.with(|_| {});
+}
+
 #[cfg(target_os = "windows")]
 fn resolve_windows_icon(path: &str) -> Option<String> {
+    ensure_com_apartment();
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
