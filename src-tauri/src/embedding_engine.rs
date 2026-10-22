@@ -43,7 +43,10 @@ impl EmbeddingEngine {
         }
 
         // Cargar ONNX Runtime
-        let session = Session::builder()
+        let environment = ort::init()
+            .build()
+            .context("Inicializando ONNX Runtime")?;
+        let session = Session::builder(&environment)
             .context("Creando builder de ONNX Runtime")?
             .commit_from_file(&model_path)
             .context("Cargando modelo ONNX")?;
