@@ -231,8 +231,16 @@ fn resolve_icon_token(icon: &str, desktop_dir: Option<&Path>) -> Option<PathBuf>
     }
 
     let resolved = search_themed_icon(trimmed);
-    if let Ok(mut guard) = cache.lock() {
-        guard.insert(trimmed.to_string(), resolved.clone());
+    // Un "no encontrado" solo se recuerda cuando el índice completo ya está hecho: antes, la búsqueda rápida no mira
+    // todas las carpetas, y guardar el fallo dejaba sin icono para siempre a las apps con el icono en la carpeta del
+    // usuario (`~/.local/share/icons`), como Fenix Deck.
+    let index_ready = INDEX_INITIALIZED
+        .get()
+        .is_some_and(|ready| ready.load(std::sync::atomic::Ordering::Relaxed));
+    if resolved.is_some() || index_ready {
+        if let Ok(mut guard) = cache.lock() {
+            guard.insert(trimmed.to_string(), resolved.clone());
+        }
     }
 
     resolved
@@ -274,7 +282,28 @@ fn search_themed_icon(icon: &str) -> Option<PathBuf> {
         }
     }
 
-    // 2. Fast direct lookups
+    // 2. Fast direct lookups. Primero el tema hicolor del usuario: ahí instalan su icono las apps que no vienen en un
+    // paquete del sistema (lo mismo que hace GTK).
+    let user_hicolor = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .map(|data| data.join("icons/hicolor"));
+    if let Some(user_hicolor) = user_hicolor {
+        for (size, ext) in [
+            ("scalable", "svg"),
+            ("256x256", "png"),
+            ("128x128", "png"),
+            ("96x96", "png"),
+            ("64x64", "png"),
+            ("48x48", "png"),
+        ] {
+            let candidate = user_hicolor.join(format!("{size}/apps/{icon}.{ext}"));
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
     for ext in &["png", "svg", "jpg", "jpeg"] {
         // Flat pixmaps
         let pixmap_path = PathBuf::from(format!("/usr/share/pixmaps/{icon}.{ext}"));
